@@ -2,6 +2,7 @@
 import './globals.css';
 import type { ReactNode } from 'react';
 import Header from '@/components/Header';
+import { LanguageProvider } from '@/components/LanguageProvider';
 
 export const metadata = {
   title: 'Blockchain Risk Score',
@@ -13,12 +14,14 @@ export default function RootLayout({ children }: { children: ReactNode }) {
     <html lang="ru">
       <body className="min-h-screen bg-slate-950 text-slate-100">
         {/* Общая шапка сайта (логотип + меню) */}
-        <Header />
+        <LanguageProvider>
+          <Header />
 
-        {/* Контент конкретной страницы */}
-        <main className="max-w-6xl mx-auto px-4 py-6">
-          {children}
-        </main>
+          {/* Контент конкретной страницы */}
+          <main className="max-w-6xl mx-auto px-4 py-6">
+            {children}
+          </main>
+        </LanguageProvider>
       </body>
     </html>
   );

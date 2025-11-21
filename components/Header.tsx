@@ -1,17 +1,18 @@
-// components/Header.tsx
 'use client';
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-
-const navItems = [
-  { href: '/', label: 'Главная' },
-  { href: '/analysis', label: 'Анализ кошелька' },
-  { href: '/dashboard', label: 'Личный кабинет' },
-];
+import { useLanguage } from './LanguageProvider';
 
 export default function Header() {
   const pathname = usePathname();
+  const { locale, setLocale, t } = useLanguage();
+
+  const navItems = [
+    { href: '/', label: t.nav.home },
+    { href: '/analysis', label: t.nav.analysis },
+    { href: '/dashboard', label: t.nav.dashboard },
+  ];
 
   return (
     <header className="border-b border-slate-800">
@@ -40,15 +41,27 @@ export default function Header() {
           })}
         </nav>
 
-        <div className="flex gap-2">
-          <Link href="/login" className="text-sm text-slate-300 hover:text-white">
-            Войти
+        <div className="flex gap-2 items-center">
+          {/* Переключатель RU/EN */}
+          <button
+            type="button"
+            onClick={() => setLocale(locale === 'ru' ? 'en' : 'ru')}
+            className="text-xs border border-slate-600 rounded-full px-3 py-1 text-slate-200 hover:bg-slate-800"
+          >
+            {locale === 'ru' ? 'EN' : 'RU'}
+          </button>
+
+          <Link
+            href="/login"
+            className="text-sm text-slate-300 hover:text-white"
+          >
+            {t.auth.login}
           </Link>
           <Link
             href="/register"
             className="text-sm bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-3 py-1 rounded-md font-medium"
           >
-            Регистрация
+            {t.auth.register}
           </Link>
         </div>
       </div>
