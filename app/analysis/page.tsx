@@ -22,11 +22,14 @@ export default function AnalysisPage() {
 
       {result && (
         <div className="space-y-4">
-          <RiskSummary result={result} />
           <div className="grid md:grid-cols-2 gap-4">
             <ActivityStats stats={result.stats} />
-            <GraphView graph={result.graph} />
+            <RiskSummary result={result} />
           </div>
+          <GraphView 
+            graph={result.graph}
+            rootAddress={result.rootAddress} 
+          />
         </div>
       )}
     </section>

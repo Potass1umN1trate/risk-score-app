@@ -1,17 +1,21 @@
-// components/RiskSummary.tsx
+'use client';
+
 import type { WalletAnalysisResult } from '@/lib/types';
+import { useLanguage } from './LanguageProvider';
 
 interface Props {
   result: WalletAnalysisResult;
 }
 
 export default function RiskSummary({ result }: Props) {
+  const { t } = useLanguage();
+
   const level =
     result.globalRiskScore >= 70
-      ? 'Высокий риск'
+      ? t.riskSummary.levelHigh
       : result.globalRiskScore >= 40
-      ? 'Средний риск'
-      : 'Низкий риск';
+      ? t.riskSummary.levelMedium
+      : t.riskSummary.levelLow;
 
   const levelColor =
     result.globalRiskScore >= 70
@@ -22,19 +26,23 @@ export default function RiskSummary({ result }: Props) {
 
   return (
     <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-2">
-      <h2 className="text-lg font-semibold">Итоговый risk score</h2>
+      <h2 className="text-lg font-semibold">{t.riskSummary.title}</h2>
+
       <p className="text-3xl font-bold">
         {result.globalRiskScore}
         <span className="text-base font-normal text-slate-400"> / 100</span>
       </p>
+
       <p className={levelColor}>{level}</p>
 
       <p className="text-xs text-slate-400">
-        Адрес: {result.rootAddress} · Блокчейн: {result.blockchain} · Глубина анализа:{' '}
-        {result.depth}
+        {t.riskSummary.address}: {result.rootAddress} ·{' '}
+        {t.riskSummary.blockchain}: {result.blockchain} ·{' '}
+        {t.riskSummary.depth}: {result.depth}
       </p>
       <p className="text-xs text-slate-500">
-        Анализ выполнен: {new Date(result.createdAt).toLocaleString('ru-RU')}
+        {t.riskSummary.performedAt}:{' '}
+        {new Date(result.createdAt).toLocaleString('ru-RU')}
       </p>
     </div>
   );

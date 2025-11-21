@@ -1,14 +1,20 @@
-// components/WalletAnalysisForm.tsx
 'use client';
 
 import { useState } from 'react';
-import type { SupportedBlockchain, WalletAnalysisRequest, WalletAnalysisResult } from '@/lib/types';
+import type {
+  SupportedBlockchain,
+  WalletAnalysisRequest,
+  WalletAnalysisResult,
+} from '@/lib/types';
+import { useLanguage } from './LanguageProvider';
 
 interface Props {
-  onResult: (result: WalletAnalysisResult) => void; // что делать с результатом
+  onResult: (result: WalletAnalysisResult) => void;
 }
 
 export default function WalletAnalysisForm({ onResult }: Props) {
+  const { t } = useLanguage();
+
   const [address, setAddress] = useState('');
   const [blockchain, setBlockchain] = useState<SupportedBlockchain>('bitcoin');
   const [depth, setDepth] = useState(2);
@@ -36,37 +42,46 @@ export default function WalletAnalysisForm({ onResult }: Props) {
 
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || 'Ошибка анализа кошелька');
+        throw new Error(data.message || 'Request failed');
       }
 
       const result: WalletAnalysisResult = await res.json();
       onResult(result);
     } catch (err: any) {
-      setError(err.message || 'Неизвестная ошибка');
+      setError(err.message || 'Unknown error');
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 bg-slate-900 border border-slate-800 p-4 rounded-xl">
+    <form
+      onSubmit={handleSubmit}
+      className="space-y-4 bg-slate-900 border border-slate-800 p-4 rounded-xl"
+    >
       <div>
-        <label className="block text-sm mb-1">Адрес кошелька</label>
+        <label className="block text-sm mb-1">
+          {t.analysisForm.addressLabel}
+        </label>
         <input
           value={address}
           onChange={(e) => setAddress(e.target.value)}
           required
           className="w-full px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-sm"
-          placeholder="Например, 0x1234... или bc1q..."
+          placeholder={t.analysisForm.addressPlaceholder}
         />
       </div>
 
-      <div className="flex gap-4">
+      <div className="flex flex-col md:flex-row md:items-end gap-4">
         <div className="flex-1">
-          <label className="block text-sm mb-1">Блокчейн</label>
+          <label className="block text-sm mb-1">
+            {t.analysisForm.blockchainLabel}
+          </label>
           <select
             value={blockchain}
-            onChange={(e) => setBlockchain(e.target.value as SupportedBlockchain)}
+            onChange={(e) =>
+              setBlockchain(e.target.value as SupportedBlockchain)
+            }
             className="w-full px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-sm"
           >
             <option value="bitcoin">Bitcoin</option>
@@ -74,15 +89,17 @@ export default function WalletAnalysisForm({ onResult }: Props) {
           </select>
         </div>
 
-        <div>
-          <label className="block text-sm mb-1">Глубина анализа (кол-во колен)</label>
+        <div className="w-40">
+          <label className="block text-sm mb-1">
+            {t.analysisForm.depthLabel}
+          </label>
           <input
             type="number"
             min={1}
             max={5}
             value={depth}
             onChange={(e) => setDepth(Number(e.target.value))}
-            className="w-24 px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-sm"
+            className="w-full px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-sm"
           />
         </div>
       </div>
@@ -94,7 +111,7 @@ export default function WalletAnalysisForm({ onResult }: Props) {
         disabled={loading}
         className="bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 px-4 py-2 rounded-md text-sm font-medium"
       >
-        {loading ? 'Анализируем…' : 'Запустить анализ'}
+        {loading ? t.analysisForm.submitLoading : t.analysisForm.submit}
       </button>
     </form>
   );

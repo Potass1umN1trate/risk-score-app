@@ -10,27 +10,54 @@ import {
 
 export type Locale = 'ru' | 'en';
 
-const translations: Record<
-  Locale,
-  {
-    nav: {
-      home: string;
-      analysis: string;
-      dashboard: string;
-    };
-    auth: {
-      login: string;
-      register: string;
-    };
-    analysisPage: {
-      title: string;
-    };
-    homePage: {
-      title: string;
-      description: string;
-    };
-  }
-> = {
+type TranslationSchema = {
+  nav: {
+    home: string;
+    analysis: string;
+    dashboard: string;
+  };
+  auth: {
+    login: string;
+    register: string;
+  };
+  analysisPage: {
+    title: string;
+  };
+  homePage: {
+    title: string;
+    description: string;
+  };
+  analysisForm: {
+    addressLabel: string;
+    addressPlaceholder: string;
+    blockchainLabel: string;
+    depthLabel: string;
+    submit: string;
+    submitLoading: string;
+  };
+  riskSummary: {
+    title: string;
+    levelLow: string;
+    levelMedium: string;
+    levelHigh: string;
+    address: string;
+    blockchain: string;
+    depth: string;
+    performedAt: string;
+  };
+  activityStats: {
+    title: string;
+    totalTx: string;
+    smallTxShare: string;
+    peakDayTx: string;
+  };
+  graph: {
+    title: string;
+    legend: string;
+  };
+};
+
+const translations: Record<Locale, TranslationSchema> = {
   ru: {
     nav: {
       home: 'Главная',
@@ -50,6 +77,35 @@ const translations: Record<
       description:
         'Введите адрес криптовалютного кошелька, выберите блокчейн и глубину анализа. ' +
         'Система соберёт транзакции, построит граф связей и присвоит итоговый уровень риска.',
+    },
+    analysisForm: {
+      addressLabel: 'Адрес кошелька',
+      addressPlaceholder: 'Например, 0x1234... или bc1q...',
+      blockchainLabel: 'Блокчейн',
+      depthLabel: 'Глубина анализа (кол-во колен)',
+      submit: 'Запустить анализ',
+      submitLoading: 'Анализируем…',
+    },
+    riskSummary: {
+      title: 'Итоговый risk score',
+      levelLow: 'Низкий риск',
+      levelMedium: 'Средний риск',
+      levelHigh: 'Высокий риск',
+      address: 'Адрес',
+      blockchain: 'Блокчейн',
+      depth: 'Глубина анализа',
+      performedAt: 'Анализ выполнен',
+    },
+    activityStats: {
+      title: 'Транзакционная активность',
+      totalTx: 'Всего транзакций',
+      smallTxShare: 'Доля мелких переводов',
+      peakDayTx: 'Максимум транзакций за день',
+    },
+    graph: {
+      title: 'Граф связей',
+      legend:
+        'Зелёная вершина — анализируемый кошелёк, красные — подозрительные, серые — остальные.',
     },
   },
   en: {
@@ -72,6 +128,35 @@ const translations: Record<
         'Enter a crypto wallet address, select the blockchain and analysis depth. ' +
         'The system will collect transactions, build a graph of relations and compute the final risk level.',
     },
+    analysisForm: {
+      addressLabel: 'Wallet address',
+      addressPlaceholder: 'For example, 0x1234... or bc1q...',
+      blockchainLabel: 'Blockchain',
+      depthLabel: 'Analysis depth (hops)',
+      submit: 'Run analysis',
+      submitLoading: 'Analyzing…',
+    },
+    riskSummary: {
+      title: 'Final risk score',
+      levelLow: 'Low risk',
+      levelMedium: 'Medium risk',
+      levelHigh: 'High risk',
+      address: 'Address',
+      blockchain: 'Blockchain',
+      depth: 'Analysis depth',
+      performedAt: 'Analysis time',
+    },
+    activityStats: {
+      title: 'Transaction activity',
+      totalTx: 'Total transactions',
+      smallTxShare: 'Share of small transfers',
+      peakDayTx: 'Max transactions per day',
+    },
+    graph: {
+      title: 'Relations graph',
+      legend:
+        'Green node — analyzed wallet, red — suspicious, grey — other nodes.',
+    },
   },
 };
 
@@ -90,7 +175,6 @@ const LanguageContext = createContext<LanguageContextValue | undefined>(
 export function LanguageProvider({ children }: { children: ReactNode }) {
   const [locale, setLocale] = useState<Locale>('ru');
 
-  // Читаем язык из localStorage при первом рендере на клиенте
   useEffect(() => {
     try {
       const stored = window.localStorage.getItem('locale') as Locale | null;
@@ -98,16 +182,15 @@ export function LanguageProvider({ children }: { children: ReactNode }) {
         setLocale(stored);
       }
     } catch {
-      // если localStorage недоступен — просто игнорируем
+      // ignore
     }
   }, []);
 
-  // Сохраняем язык при изменении
   useEffect(() => {
     try {
       window.localStorage.setItem('locale', locale);
     } catch {
-      // игнорируем
+      // ignore
     }
   }, [locale]);
 
