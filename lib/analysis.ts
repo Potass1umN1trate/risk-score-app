@@ -6,17 +6,27 @@ import type {
   GraphLink,
   ActivityStats,
 } from './types';
-import { fetchTransactionsMock } from './blockchainApi';
+import {
+  fetchTransactions,
+  type BlockchainTx,
+} from './blockchainApi';
 import { calculateRiskScore } from './riskScore';
 
 export async function performFullAnalysis(
   req: WalletAnalysisRequest,
 ): Promise<WalletAnalysisResult> {
-  // 1. Получаем транзакции с публичных API (пока заглушка)
-  const transactions = await fetchTransactionsMock(req.address, req.blockchain, req.depth);
+  // 1. Реальный сбор транзакций из блокчейна
+  const transactions = await fetchTransactions(
+    req.address,
+    req.blockchain,
+    req.depth,
+  );
 
-  // 2. Строим граф связей на основе транзакций
-  const { nodes, links } = buildGraphFromTransactions(transactions, req.address);
+  // 2. Строим граф связей
+  const { nodes, links } = buildGraphFromTransactions(
+    transactions,
+    req.address,
+  );
 
   // 3. Анализируем транзакционную активность
   const stats = analyzeActivity(transactions);
@@ -35,23 +45,18 @@ export async function performFullAnalysis(
   };
 }
 
-// Тип для транзакции (упрощённо)
-interface Tx {
-  from: string;
-  to: string;
-  amount: number;
-  timestamp: number; // unix time
-}
-
-// В реальности сюда должен попадать массив Tx из API
-function buildGraphFromTransactions(txs: Tx[], rootAddress: string): {
-  nodes: GraphNode[];
-  links: GraphLink[];
-} {
+/**
+ * Строим граф: из списка транзакций получаем узлы и связи.
+ * Логика та же, что была раньше, просто тип Tx теперь импортируем.
+ */
+function buildGraphFromTransactions(
+  txs: BlockchainTx[],
+  rootAddress: string,
+): { nodes: GraphNode[]; links: GraphLink[] } {
   const nodeMap = new Map<string, GraphNode>();
   const linkKeyToCount = new Map<string, number>();
 
-  // Добавляем корневой узел
+  // корневой узел
   nodeMap.set(rootAddress, {
     id: rootAddress,
     label: shorten(rootAddress),
@@ -60,8 +65,10 @@ function buildGraphFromTransactions(txs: Tx[], rootAddress: string): {
   });
 
   for (const tx of txs) {
-    // регистрируем узлы
-    for (const addr of [tx.from, tx.to]) {
+    const { from, to } = tx;
+
+    for (const addr of [from, to]) {
+      if (!addr) continue;
       if (!nodeMap.has(addr)) {
         nodeMap.set(addr, {
           id: addr,
@@ -72,9 +79,10 @@ function buildGraphFromTransactions(txs: Tx[], rootAddress: string): {
       }
     }
 
-    // считаем количество транзакций между парами
-    const key = `${tx.from}->${tx.to}`;
-    linkKeyToCount.set(key, (linkKeyToCount.get(key) || 0) + 1);
+    if (from && to) {
+      const key = `${from}->${to}`;
+      linkKeyToCount.set(key, (linkKeyToCount.get(key) || 0) + 1);
+    }
   }
 
   const links: GraphLink[] = [];
@@ -87,17 +95,25 @@ function buildGraphFromTransactions(txs: Tx[], rootAddress: string): {
   return { nodes, links };
 }
 
-function analyzeActivity(txs: Tx[]): ActivityStats {
+/**
+ * Анализ транзакционной активности (как раньше, только тип другой).
+ */
+function analyzeActivity(txs: BlockchainTx[]): ActivityStats {
   const totalTx = txs.length;
   if (totalTx === 0) {
     return { totalTx: 0, smallTxShare: 0, peakDayTx: 0 };
   }
 
-  // Мелкие переводы < 0.01 монеты (условно)
-  const smallTxCount = txs.filter((tx) => tx.amount < 0.01).length;
+  const amounts = txs.map((tx) => Math.abs(tx.amount));
+  const sorted = [...amounts].sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)] || 0;
+  const threshold = median || 0.0001;
+
+  const smallTxCount = txs.filter(
+    (tx) => Math.abs(tx.amount) <= threshold,
+  ).length;
   const smallTxShare = smallTxCount / totalTx;
 
-  // Пик транзакций в день
   const perDay = new Map<string, number>();
   for (const tx of txs) {
     const day = new Date(tx.timestamp * 1000).toISOString().slice(0, 10);
@@ -110,5 +126,5 @@ function analyzeActivity(txs: Tx[]): ActivityStats {
 
 function shorten(addr: string) {
   if (addr.length <= 10) return addr;
-  return addr.slice(0, 6) + '...' + addr.slice(-4);
+  return `${addr.slice(0, 6)}...${addr.slice(-4)}`;
 }
