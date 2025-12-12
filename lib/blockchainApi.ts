@@ -3,9 +3,10 @@ import type { SupportedBlockchain } from './types';
 
 /**
  * Унифицированная транзакция для анализа и графа.
- * amount — в "человеческих" единицах (BTC / ETH / токенах).
+ * txid — опционально, используется для дедупликации.
  */
 export interface BlockchainTx {
+  txid?: string;
   from: string;
   to: string;
   amount: number;
@@ -13,95 +14,260 @@ export interface BlockchainTx {
 }
 
 /**
- * Главная функция: получить транзакции по адресу.
- * depth сейчас не используется (берём транзакции только самого адреса),
- * но оставляем параметр "на вырост", чтобы не ломать сигнатуру.
+ * Чтобы не убиться об rate limit внешних API,
+ * ограничиваем общее количество адресов, которые обходим.
+ */
+const MAX_ADDRESSES_PER_ANALYSIS = 15;
+const MAX_DEPTH = 5;
+
+/**
+ * Результат основного анализа.
+ */
+export interface FetchTransactionsResult {
+  transactions: BlockchainTx[];
+  failedAddresses: string[]; // адреса, по которым были ошибки
+}
+
+/**
+ * Узел в очереди обхода по "коленам".
+ */
+interface AddressNode {
+  addr: string;
+  level: number;
+}
+
+/**
+ * Обобщённый тип функции получения транзакций по адресу.
+ */
+type AddressTxFetcher = (address: string) => Promise<BlockchainTx[]>;
+
+/**
+ * Карта блокчейн → функция подгрузки транзакций.
+ * Это позволяет легко добавлять новые блокчейны.
+ */
+const addressTxFetchers: Record<SupportedBlockchain, AddressTxFetcher> = {
+  bitcoin: fetchBitcoinAddressTransactions,
+  ethereum: fetchEthereumAddressTransactions,
+};
+
+/**
+ * Главная функция: собираем транзакции с учётом глубины.
+ *
+ * depth:
+ *  1 — только сам адрес
+ *  2 — адрес + его контрагенты (1 колено)
+ *  3 — + контрагенты контрагентов (2 колена) и т.д.
  */
 export async function fetchTransactions(
-  address: string,
+  rootAddress: string,
   blockchain: SupportedBlockchain,
   depth: number,
-): Promise<BlockchainTx[]> {
-  void depth; // чтобы линтер не ругался
+): Promise<FetchTransactionsResult> {
+  const maxDepth = Math.max(1, Math.min(depth, MAX_DEPTH));
 
-  if (blockchain === 'bitcoin') {
-    return fetchBitcoinTransactions(address);
+  const fetcher = addressTxFetchers[blockchain];
+  if (!fetcher) {
+    throw new Error(`Unsupported blockchain: ${blockchain as string}`);
   }
 
-  if (blockchain === 'ethereum') {
-    return fetchEthereumTransactions(address);
+  const visited = new Set<string>();
+  const queue: AddressNode[] = [{ addr: rootAddress, level: 0 }];
+
+  const collected: BlockchainTx[] = [];
+  const failedAddresses: string[] = [];
+
+  while (queue.length > 0 && visited.size < MAX_ADDRESSES_PER_ANALYSIS) {
+    const { addr, level } = queue.shift()!;
+    if (visited.has(addr)) continue;
+    visited.add(addr);
+
+    let txsForAddr: BlockchainTx[];
+    try {
+      txsForAddr = await fetcher(addr);
+    } catch (error) {
+      // 💡 ВАЖНО: не падаем, а просто помечаем адрес как "упавший"
+      console.error('Error fetching txs for', addr, error);
+      failedAddresses.push(addr);
+      continue;
+    }
+
+    collected.push(...txsForAddr);
+
+    // дальше по глубине не идём
+    if (level >= maxDepth - 1) continue;
+
+    const neighbors = collectNeighbors(addr, txsForAddr);
+
+    for (const neighbor of neighbors) {
+      if (!neighbor) continue;
+      if (visited.has(neighbor)) continue;
+      if (queue.some((q) => q.addr === neighbor)) continue;
+      if (visited.size + queue.length >= MAX_ADDRESSES_PER_ANALYSIS) break;
+
+      queue.push({ addr: neighbor, level: level + 1 });
+    }
   }
 
-  throw new Error(`Unsupported blockchain: ${blockchain}`);
+  return {
+    transactions: deduplicateTransactions(collected),
+    failedAddresses,
+  };
+}
+
+/**
+ * Собираем соседей: все уникальные from/to, отличные от текущего адреса.
+ */
+function collectNeighbors(currentAddr: string, txs: BlockchainTx[]): Set<string> {
+  const neighbors = new Set<string>();
+
+  for (const tx of txs) {
+    if (tx.from && tx.from !== currentAddr) {
+      neighbors.add(tx.from);
+    }
+    if (tx.to && tx.to !== currentAddr) {
+      neighbors.add(tx.to);
+    }
+  }
+
+  return neighbors;
+}
+
+/**
+ * Дедупликация транзакций:
+ * - если есть txid, используем его как ключ;
+ * - иначе собираем составной ключ по from/to/timestamp/amount.
+ */
+function deduplicateTransactions(txs: BlockchainTx[]): BlockchainTx[] {
+  const unique = new Map<string, BlockchainTx>();
+
+  for (const tx of txs) {
+    const key = tx.txid
+      ? tx.txid
+      : `${tx.from}->${tx.to}@${tx.timestamp}@${tx.amount.toFixed(8)}`;
+
+    if (!unique.has(key)) {
+      unique.set(key, tx);
+    }
+  }
+
+  return Array.from(unique.values());
 }
 
 /* ========================= BITCOIN ========================= */
 
-type BitcoinRawAddr = {
-  txs: {
-    time: number;
-    inputs: { prev_out?: { addr?: string; value?: number } }[];
-    out: { addr?: string; value?: number }[];
+const BTC_CACHE_TTL_MS = 60_000; // 60 секунд
+
+// Глобальный кэш (живёт, пока живёт Node-процесс)
+type BtcCacheEntry = { ts: number; txs: BlockchainTx[] };
+
+const globalAny = globalThis as { __btcCache?: Map<string, BtcCacheEntry> };
+
+if (!globalAny.__btcCache) {
+  globalAny.__btcCache = new Map<string, BtcCacheEntry>();
+}
+
+const btcCache = globalAny.__btcCache!;
+
+type EsploraTx = {
+  txid: string;
+  vin: {
+    prevout?: {
+      scriptpubkey_address?: string;
+      value?: number;
+    };
   }[];
+  vout: {
+    scriptpubkey_address?: string;
+    value?: number;
+  }[];
+  status?: {
+    block_time?: number;
+  };
 };
 
-/**
- * Забираем историю адреса через blockchain.info/rawaddr
- */
-async function fetchBitcoinTransactions(
+async function fetchBitcoinAddressTransactions(
   address: string,
 ): Promise<BlockchainTx[]> {
-  const url = `https://blockchain.info/rawaddr/${encodeURIComponent(
+  const now = Date.now();
+  const cached = btcCache.get(address);
+
+  if (cached && now - cached.ts < BTC_CACHE_TTL_MS) {
+    return cached.txs;
+  }
+
+  const url = `https://mempool.space/api/address/${encodeURIComponent(
     address,
-  )}?limit=50`;
+  )}/txs`;
 
   const res = await fetch(url);
   if (!res.ok) {
-    throw new Error(`Bitcoin API error: ${res.status} ${res.statusText}`);
+    // 400, 429, 500 и т.п. — считаем ошибкой
+    throw new Error(
+      `Bitcoin API (mempool.space) error for ${address}: ${res.status} ${res.statusText}`,
+    );
   }
 
-  const data = (await res.json()) as BitcoinRawAddr;
+  const data = (await res.json()) as EsploraTx[];
+  const txs = parseEsploraTransactions(address, data);
 
+  btcCache.set(address, { ts: now, txs });
+
+  return txs;
+}
+
+/**
+ * Преобразуем формат Esplora в унифицированный BlockchainTx.
+ */
+function parseEsploraTransactions(
+  address: string,
+  data: EsploraTx[] = [],
+): BlockchainTx[] {
   const txs: BlockchainTx[] = [];
 
-  for (const tx of data.txs || []) {
-    const time = tx.time;
+  for (const tx of data) {
+    const time = tx.status?.block_time ?? Math.floor(Date.now() / 1000);
 
-    const inputs = tx.inputs ?? [];
-    const outputs = tx.out ?? [];
+    const inputs = tx.vin || [];
+    const outputs = tx.vout || [];
 
     const inputAddrs = inputs
-      .map((i) => i.prev_out?.addr)
+      .map((i) => i.prevout?.scriptpubkey_address)
       .filter((a): a is string => Boolean(a));
+
     const outputAddrs = outputs
-      .map((o) => o.addr)
+      .map((o) => o.scriptpubkey_address)
       .filter((a): a is string => Boolean(a));
 
-    const fromHasRoot = inputAddrs.includes(address);
-    const toHasRoot = outputAddrs.includes(address);
+    const fromHasAddr = inputAddrs.includes(address);
+    const toHasAddr = outputAddrs.includes(address);
 
-    // Исходящие: root -> каждый другой получатель
-    if (fromHasRoot) {
+    // Исходящие транзакции: наш адрес в input, остальные — получатели
+    if (fromHasAddr) {
       for (const out of outputs) {
-        if (!out.addr || out.addr === address) continue;
-        const btc = (out.value ?? 0) / 1e8; // sat → BTC
+        const to = out.scriptpubkey_address;
+        if (!to || to === address) continue;
+
+        const btc = (out.value ?? 0) / 1e8;
         txs.push({
+          txid: tx.txid,
           from: address,
-          to: out.addr,
+          to,
           amount: btc,
           timestamp: time,
         });
       }
     }
 
-    // Входящие: каждый отправитель -> root
-    if (toHasRoot) {
+    // Входящие транзакции: наш адрес в output, остальные — отправители
+    if (toHasAddr) {
       for (const input of inputs) {
-        const addr = input.prev_out?.addr;
-        if (!addr || addr === address) continue;
-        const btc = (input.prev_out?.value ?? 0) / 1e8;
+        const from = input.prevout?.scriptpubkey_address;
+        if (!from || from === address) continue;
+
+        const btc = (input.prevout?.value ?? 0) / 1e8;
         txs.push({
-          from: addr,
+          txid: tx.txid,
+          from,
           to: address,
           amount: btc,
           timestamp: time,
@@ -115,59 +281,49 @@ async function fetchBitcoinTransactions(
 
 /* ========================= ETHEREUM ========================= */
 
-type EthplorerHistory = {
-  operations?: {
-    timestamp: number;
-    from?: string;
-    to?: string;
-    value?: number;
-    tokenInfo?: {
-      decimals?: string | number;
-      symbol?: string;
-    };
-  }[];
+type EthplorerTx = {
+  timestamp: number;
+  hash?: string;
+  from?: string;
+  to?: string;
+  value?: number;    // значение уже в ETH
 };
 
-/**
- * Забираем историю операций через Ethplorer.
- * Для dev можно оставить apiKey=freekey, потом заменить на свой.
- */
-async function fetchEthereumTransactions(
+async function fetchEthereumAddressTransactions(
   address: string,
 ): Promise<BlockchainTx[]> {
   const apiKey = process.env.ETHPLORER_API_KEY || 'freekey';
 
-  const url = `https://api.ethplorer.io/getAddressHistory/${encodeURIComponent(
+  // Берём именно getAddressTransactions — он отдаёт обычные ETH-транзакции
+  const url = `https://api.ethplorer.io/getAddressTransactions/${encodeURIComponent(
     address,
-  )}?apiKey=${encodeURIComponent(apiKey)}&limit=50`;
+  )}?apiKey=${encodeURIComponent(apiKey)}&limit=50&showZeroValues=false`;
 
   const res = await fetch(url);
   if (!res.ok) {
-    throw new Error(`Ethplorer API error: ${res.status} ${res.statusText}`);
+    throw new Error(
+      `Ethplorer API error for ${address}: ${res.status} ${res.statusText}`,
+    );
   }
 
-  const data = (await res.json()) as EthplorerHistory;
-
+  const data = (await res.json()) as EthplorerTx[];
   const txs: BlockchainTx[] = [];
 
-  for (const op of data.operations || []) {
-    const from = op.from || address;
-    const to = op.to || address;
+  for (const tx of data || []) {
+    const from = tx.from || address;
+    const to = tx.to || address;
+    const amount = tx.value ?? 0;
 
-    const decimalsRaw = op.tokenInfo?.decimals ?? 18;
-    const decimals =
-      typeof decimalsRaw === 'string'
-        ? parseInt(decimalsRaw, 10)
-        : decimalsRaw;
-    const divisor = Math.pow(10, isFinite(decimals) ? decimals : 18);
-
-    const amount = (op.value ?? 0) / divisor;
+    // Отбрасываем нулевые/битые
+    if (!from || !to) continue;
+    if (!Number.isFinite(amount) || amount === 0) continue;
 
     txs.push({
+      txid: tx.hash,
       from,
       to,
-      amount,
-      timestamp: op.timestamp,
+      amount,          // уже в ETH
+      timestamp: tx.timestamp,
     });
   }
 

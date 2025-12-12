@@ -55,6 +55,9 @@ type TranslationSchema = {
     title: string;
     legend: string;
   };
+  meta: {
+    partialAnalysis: string; // 🆕
+  };
 };
 
 const translations: Record<Locale, TranslationSchema> = {
@@ -107,6 +110,10 @@ const translations: Record<Locale, TranslationSchema> = {
       legend:
         'Зелёная вершина — анализируемый кошелёк, красные — подозрительные, серые — остальные.',
     },
+    meta: {
+      partialAnalysis:
+        'Анализ выполнен частично: не удалось получить данные по части адресов.',
+    },
   },
   en: {
     nav: {
@@ -156,6 +163,10 @@ const translations: Record<Locale, TranslationSchema> = {
       title: 'Relations graph',
       legend:
         'Green node — analyzed wallet, red — suspicious, grey — other nodes.',
+    },
+    meta: {
+      partialAnalysis:
+        'Analysis was partially completed: failed to retrieve data for some addresses.',
     },
   },
 };

@@ -24,6 +24,8 @@ export default function RiskSummary({ result }: Props) {
       ? 'text-yellow-300'
       : 'text-emerald-400';
 
+  const partial = result.meta?.partial;
+
   return (
     <div className="bg-slate-900 border border-slate-800 p-4 rounded-xl space-y-2">
       <h2 className="text-lg font-semibold">{t.riskSummary.title}</h2>
@@ -34,6 +36,12 @@ export default function RiskSummary({ result }: Props) {
       </p>
 
       <p className={levelColor}>{level}</p>
+      {/* 🟡 Предупреждение о частичном анализе */}
+      {partial && (
+        <p className="text-xs text-yellow-300">
+          {t.meta.partialAnalysis}
+        </p>
+      )}
 
       <p className="text-xs text-slate-400">
         {t.riskSummary.address}: {result.rootAddress} ·{' '}
