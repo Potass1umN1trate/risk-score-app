@@ -289,6 +289,8 @@ type EthplorerTx = {
   value?: number;    // значение уже в ETH
 };
 
+// lol
+
 async function fetchEthereumAddressTransactions(
   address: string,
 ): Promise<BlockchainTx[]> {
