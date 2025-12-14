@@ -27,15 +27,23 @@ export interface ActivityStats {
   peakDayTx: number;        // максимум транзакций в день
 }
 
+export interface WalletAnalysisMeta {
+  partial: boolean;
+  failedAddresses: string[];
+}
+
 export interface WalletAnalysisResult {
   rootAddress: string;
   blockchain: SupportedBlockchain;
   depth: number;
-  globalRiskScore: number;  // итоговый risk score кошелька
+  globalRiskScore: number;
   graph: {
     nodes: GraphNode[];
     links: GraphLink[];
   };
   stats: ActivityStats;
-  createdAt: string;        // ISO дата
+  createdAt: string;
+
+  // 👇 ЭТО добавляем
+  meta?: WalletAnalysisMeta;
 }
