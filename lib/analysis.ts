@@ -11,6 +11,10 @@ import {
   type BlockchainTx,
   type FetchTransactionsResult,
 } from './blockchainApi';
+import {
+  findBadAddressesForAddresses,
+  type BadAddressRecord,
+} from './badAddresses';
 import { calculateRiskScore } from './riskScore';
 
 export async function performFullAnalysis(
@@ -26,8 +30,47 @@ export async function performFullAnalysis(
     transactions,
     req.address,
   );
+
+  // =========================
+  // 1. Тянем "плохие" адреса из базы
+  // =========================
+  const allAddresses = Array.from(new Set(nodes.map((n) => n.id)));
+
+  let badAddressMap: Map<string, BadAddressRecord> = new Map();
+  try {
+    badAddressMap = await findBadAddressesForAddresses(
+      req.blockchain,
+      allAddresses,
+    );
+  } catch (err) {
+    console.error('Error checking bad addresses', err);
+  }
+
+  // =========================
+  // 2. Помечаем ноды как подозрительные
+  // =========================
+  if (badAddressMap.size > 0) {
+    applyBadFlagsToNodes(nodes, badAddressMap);
+  }
+
+  // =========================
+  // 3. Остальной анализ как был
+  // =========================
   const stats = analyzeActivity(transactions);
-  const globalRiskScore = calculateRiskScore({ nodes, links, stats });
+
+  // Базовый скор по твоей старой формуле
+  let globalRiskScore = calculateRiskScore({ nodes, links, stats });
+
+  // --- OVERRIDE: блоклист сильнее эвристик ---
+  // Берём максимальный riskScore по узлам (куда мы уже залили risk_level из БД)
+  const maxNodeRisk = nodes.reduce(
+    (max, n) => Math.max(max, n.riskScore ?? 0),
+    0,
+  );
+
+  if (maxNodeRisk > globalRiskScore) {
+    globalRiskScore = maxNodeRisk;
+  }
 
   return {
     rootAddress: req.address,
@@ -40,9 +83,30 @@ export async function performFullAnalysis(
     meta: {
       partial: failedAddresses.length > 0,
       failedAddresses,
+      badAddressesCount: badAddressMap.size,
     },
   };
 }
+
+function applyBadFlagsToNodes(
+  nodes: GraphNode[],
+  badMap: Map<string, BadAddressRecord>,
+) {
+  for (const node of nodes) {
+    const bad = badMap.get(node.id);
+    if (!bad) continue;
+
+    node.isSuspicious = true;
+
+    // Минимальный вариант: риск узла не меньше risk_level из БД
+    node.riskScore = Math.max(node.riskScore ?? 0, bad.riskLevel);
+
+    // Доп. инфа (если захочешь подсвечивать её во фронте)
+    node.badTag = bad.tag ?? null;
+    node.badSource = bad.source ?? null;
+  }
+}
+
 
 /**
  * Строим граф: из списка транзакций получаем узлы и связи.

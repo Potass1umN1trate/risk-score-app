@@ -1,26 +1,29 @@
 version: "3.9"
 
 services:
-  app:
-    build: .
-    container_name: risk-score-app
-    ports:
-      - "3000:3000"
-    env_file:
-      - .env.local
-    depends_on:
-      - db
-
   db:
     image: postgres:16-alpine
     container_name: risk-score-db
     restart: unless-stopped
-    environment:
-      POSTGRES_USER: risk
-      POSTGRES_PASSWORD: risk
-      POSTGRES_DB: riskdb
+    env_file:
+      - .env.local      # ← берём переменные отсюда
+    ports:
+      - "5432:5432"
     volumes:
-      - db-data:/var/lib/postgresql/data
+      - ./pgdata:/var/lib/postgresql/data
+
+  app:
+    build: .
+    container_name: risk-score-app
+    restart: unless-stopped
+    env_file:
+      - .env.local      # те же переменные доступны внутри app
+    depends_on:
+      - db
+    ports:
+      - "3000:3000"
+
+
 
 volumes:
   db-data:

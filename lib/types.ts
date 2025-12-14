@@ -9,10 +9,14 @@ export interface WalletAnalysisRequest {
 }
 
 export interface GraphNode {
-  id: string;               // адрес кошелька
-  label: string;            // короткий текст (например, сокращённый адрес)
-  riskScore: number;        // локальный risk score для узла
-  isSuspicious: boolean;    // флаг "подозрительный"
+  id: string;
+  label: string;
+  riskScore: number;
+  isSuspicious: boolean;
+
+  // Новые, опциональные поля — UI сможет их показывать, если захочешь
+  badTag?: string | null;
+  badSource?: string | null;
 }
 
 export interface GraphLink {
@@ -43,7 +47,18 @@ export interface WalletAnalysisResult {
   };
   stats: ActivityStats;
   createdAt: string;
+  meta: {
+    partial: boolean;
+    failedAddresses: string[];
 
-  // 👇 ЭТО добавляем
-  meta?: WalletAnalysisMeta;
+    // Новое поле: что именно совпало с локальным blacklist
+    badAddressesCount?: number; 
+    badAddresses?: {
+      address: string;
+      tag: string | null;
+      riskLevel: number;
+      source: string | null;
+      evidenceUrl: string | null;
+    }[];
+  };
 }
