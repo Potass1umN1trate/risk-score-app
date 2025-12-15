@@ -1,7 +1,7 @@
 // lib/db.ts
 import crypto from 'crypto';
-import type { UserRole, AuthSession } from './types';
 import { Pool } from 'pg';
+import type { UserRole, AuthSession } from './types';
 import type { SupportedBlockchain, WalletAnalysisResult } from './types';
 
 const connectionConfig = process.env.DATABASE_URL
@@ -41,9 +41,13 @@ export interface HistoryRow {
 }
 
 export async function saveAnalysis(
-  userId: string | null,
+  userId: string,
   analysis: WalletAnalysisResult,
 ): Promise<void> {
+  if (!userId) {
+    throw new Error('saveAnalysis: userId is required');
+  }
+
   const client = await pg.connect();
   try {
     await client.query(
@@ -72,7 +76,7 @@ export async function saveAnalysis(
 }
 
 interface GetUserHistoryParams {
-  userId: string | null;
+  userId: string; // ⬅️ ОБЯЗАТЕЛЬНО
   limit?: number;
 }
 
@@ -80,10 +84,14 @@ export async function getUserHistory(
   params: GetUserHistoryParams,
 ): Promise<HistoryRow[]> {
   const { userId, limit = 20 } = params;
-  const client = await pg.connect();
 
+  if (!userId) {
+    throw new Error('getUserHistory: userId is required');
+  }
+
+  const client = await pg.connect();
   try {
-    const withUser = `
+    const q = `
       SELECT
         id,
         user_id,
@@ -98,25 +106,9 @@ export async function getUserHistory(
       LIMIT $2
     `;
 
-    const withoutUser = `
-      SELECT
-        id,
-        user_id,
-        blockchain,
-        root_address,
-        depth,
-        global_risk_score,
-        created_at
-      FROM analysis_history
-      ORDER BY created_at DESC
-      LIMIT $1
-    `;
+    const { rows } = await client.query(q, [userId, limit]);
 
-    const { rows } = userId
-      ? await client.query(withUser, [userId, limit])
-      : await client.query(withoutUser, [limit]);
-
-    // Мапим snake_case → camelCase ОДИН раз здесь
+    // snake_case → camelCase
     return rows.map((row) => ({
       id: row.id,
       userId: row.user_id ?? null,
@@ -188,7 +180,7 @@ export async function updateUserRole(
 
 export async function createSession(
   userId: number,
-  ttlHours = 24 * 7, // неделя по умолчанию
+  ttlHours = 24 * 7,
 ): Promise<{ id: string; expiresAt: Date }> {
   const id = crypto.randomUUID();
   const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000);
@@ -259,15 +251,14 @@ export async function autoFlagBadAddress(params: {
     [
       params.blockchain,
       params.address,
-      'auto-suspicious',                    // пометка что это автофлаг
+      'auto-suspicious',
       riskLevel,
-      'auto: risk-score propagation',       // откуда взялось
+      'auto: risk-score propagation',
       null,
     ],
   );
 }
 
 export async function getDbClient() {
-  // удобный helper для транзакций
   return pg.connect();
 }

@@ -5,9 +5,6 @@ import { saveAnalysis, autoFlagBadAddress } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth-session';
 import type { WalletAnalysisRequest } from '@/lib/types';
 
-// Порог, начиная с которого мы считаем адрес достаточно рискованным,
-// чтобы тащить его в bad_addresses. Если хочешь literally "любое > 0",
-// ставь 1.
 const AUTO_BAD_THRESHOLD = 30;
 
 export async function POST(req: Request) {
@@ -20,16 +17,24 @@ export async function POST(req: Request) {
       depth: Number(body.depth) || 1,
     };
 
+    if (!reqData.address || !reqData.blockchain) {
+      return NextResponse.json(
+        { message: 'Invalid request data' },
+        { status: 400 },
+      );
+    }
+
+    // 1️⃣ Выполняем анализ (разрешён без логина)
     const result = await performFullAnalysis(reqData);
 
-    // Проверяем, есть ли связи с уже известными плохими адресами
+    // 2️⃣ Проверяем плохих соседей
     const hasBadNeighbors = result.graph.nodes.some(
       (n) =>
         n.id !== result.rootAddress &&
         (n.isSuspicious || !!n.badTag || !!n.badSource),
     );
 
-    // Если риск достаточно высокий и есть "плохие соседи" — автофлагим root-адрес
+    // 3️⃣ Автофлаг (НЕ критичен)
     if (result.globalRiskScore >= AUTO_BAD_THRESHOLD && hasBadNeighbors) {
       try {
         await autoFlagBadAddress({
@@ -38,17 +43,18 @@ export async function POST(req: Request) {
           riskLevel: result.globalRiskScore,
         });
       } catch (e) {
-        // важно: не ронять сам анализ, если автофлаг сломался
         console.error('Failed to auto-flag bad address', e);
       }
     }
 
+    // 4️⃣ Сохраняем историю ТОЛЬКО если пользователь залогинен
     const user = await getSessionUser();
-    // У тебя здесь была ошибка: в AuthSession поле userId, а не id
-    const userId = user ? String(user.userId) : null;
 
-    await saveAnalysis(userId, result);
+    if (user && user.userId) {
+      await saveAnalysis(String(user.userId), result);
+    }
 
+    // 5️⃣ Возвращаем результат в любом случае
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
     console.error('Error in /api/analyze', err);
