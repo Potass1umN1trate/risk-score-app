@@ -272,3 +272,34 @@ export async function autoFlagBadAddress(params: {
 export async function getDbClient() {
   return pg.connect();
 }
+
+export async function upsertScannedAddressRisk(params: {
+  blockchain: SupportedBlockchain;
+  address: string;
+  riskLevel: number;
+}): Promise<void> {
+  const riskLevel = Math.max(0, Math.min(100, Math.round(params.riskLevel)));
+
+  await pg.query(
+    `
+    INSERT INTO bad_addresses (
+      blockchain,
+      address,
+      tag,
+      risk_level,
+      source,
+      evidence_url,
+      user_id,
+      first_seen_at,
+      last_seen_at
+    )
+    VALUES ($1, $2, NULL, $3, 'auto: scan', NULL, NULL, NOW(), NOW())
+    ON CONFLICT (blockchain, address) DO UPDATE
+      SET
+        -- повышаем риск только вверх (динамика, но без затирания manual)
+        risk_level = GREATEST(bad_addresses.risk_level, EXCLUDED.risk_level),
+        last_seen_at = NOW()
+    `,
+    [params.blockchain, params.address, riskLevel],
+  );
+}
