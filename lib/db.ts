@@ -218,8 +218,6 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await pg.query(`DELETE FROM sessions WHERE id = $1`, [sessionId]);
 }
 
-// lib/db.ts (в самом конце файла)
-
 export async function autoFlagBadAddress(params: {
   blockchain: SupportedBlockchain;
   address: string;
