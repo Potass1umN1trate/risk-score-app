@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/components/LanguageProvider';
+import { BadAddressesImport } from '@/components/BadAddressesImport';
 import type { SupportedBlockchain, UserRole } from '@/lib/types';
 
 type MeUser = {
@@ -120,6 +121,16 @@ export default function DashboardPage() {
       cancelled = true;
     };
   }, [router]);
+
+  // 👉 клик по строке истории → редирект на /analysis с нужными query
+  function handleHistoryRowClick(item: HistoryItem) {
+    const params = new URLSearchParams({
+      addr: item.rootAddress,
+      blockchain: item.blockchain,
+      depth: String(item.depth ?? 1),
+    });
+    router.push(`/analysis?${params.toString()}`);
+  }
 
   async function handleAddBadAddress(e: React.FormEvent) {
     e.preventDefault();
@@ -331,7 +342,11 @@ export default function DashboardPage() {
                 </thead>
                 <tbody>
                   {history.map((h) => (
-                    <tr key={h.id} className="border-b border-slate-900">
+                    <tr
+                      key={h.id}
+                      onClick={() => handleHistoryRowClick(h)}
+                      className="border-b border-slate-900 cursor-pointer hover:bg-slate-800/40"
+                    >
                       <td className="py-2 pr-2 text-slate-300">
                         {new Date(h.createdAt).toLocaleString()}
                       </td>
@@ -359,7 +374,7 @@ export default function DashboardPage() {
       {/* TAB: BAD ADDRESSES */}
       {activeTab === 'bad' && (
         <div className="space-y-4">
-          {/* Форма добавления – только пusher/admin */}
+          {/* форма добавления – только pusher/admin */}
           {(me.role === 'pusher' || me.role === 'admin') && (
             <form
               onSubmit={handleAddBadAddress}
@@ -368,7 +383,15 @@ export default function DashboardPage() {
               <h2 className="text-lg font-medium mb-1">
                 {t.dashboard?.badAddTitle ?? 'Add bad address'}
               </h2>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+
+              {/* импорт CSV */}
+              <BadAddressesImport
+                onImported={(rows) => {
+                  setBadAddresses((prev) => [...rows, ...prev]);
+                }}
+              />
+
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
                 <div>
                   <label className="block text-xs mb-1 text-slate-400">
                     Blockchain

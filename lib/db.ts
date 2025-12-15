@@ -218,3 +218,39 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await pg.query(`DELETE FROM sessions WHERE id = $1`, [sessionId]);
 }
 
+// lib/db.ts (в самом конце файла)
+
+export async function autoFlagBadAddress(params: {
+  blockchain: SupportedBlockchain;
+  address: string;
+  riskLevel: number;
+}): Promise<void> {
+  const riskLevel = Math.max(0, Math.min(100, Math.round(params.riskLevel)));
+
+  await pg.query(
+    `
+    INSERT INTO bad_addresses (
+      blockchain,
+      address,
+      tag,
+      risk_level,
+      source,
+      evidence_url,
+      user_id,
+      first_seen_at,
+      last_seen_at
+    )
+    VALUES ($1, $2, $3, $4, $5, $6, NULL, NOW(), NOW())
+    ON CONFLICT (blockchain, address) DO UPDATE
+      SET last_seen_at = EXCLUDED.last_seen_at
+    `,
+    [
+      params.blockchain,
+      params.address,
+      'auto-suspicious',                    // пометка что это автофлаг
+      riskLevel,
+      'auto: risk-score propagation',       // откуда взялось
+      null,
+    ],
+  );
+}

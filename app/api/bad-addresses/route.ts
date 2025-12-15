@@ -2,6 +2,8 @@
 import { NextResponse } from 'next/server';
 import { pg } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth';
+import type { SupportedBlockchain } from '@/lib/types';
+import { isValidAddressFormat } from '@/lib/blockchainValidators';
 
 export async function GET(req: Request) {
   try {
@@ -82,14 +84,51 @@ export async function POST(req: Request) {
     }
 
     const body = await req.json();
-    const {
+    let {
       blockchain,
       address,
       tag,
       riskLevel,
       source,
       evidenceUrl,
-    } = body;
+    } = body  as {
+      blockchain: string;
+      address: string;
+      tag?: string;
+      riskLevel?: number;
+      source?: string;
+      evidenceUrl?: string;
+    };
+
+    // нормализуем
+    blockchain = String(blockchain || '').toLowerCase();
+    address = String(address || '').trim();
+
+    if (blockchain !== 'bitcoin' && blockchain !== 'ethereum') {
+      return NextResponse.json(
+        { message: 'Unsupported blockchain' },
+        { status: 400 },
+      );
+    }
+
+    if (!address) {
+      return NextResponse.json(
+        { message: 'Address is required' },
+        { status: 400 },
+      );
+    }
+
+    if (!isValidAddressFormat(blockchain as SupportedBlockchain, address)) {
+      return NextResponse.json(
+        { message: 'Invalid address format for given blockchain' },
+        { status: 400 },
+      );
+    }
+
+    const numericRisk =
+      typeof riskLevel === 'number'
+        ? Math.max(0, Math.min(100, Math.round(riskLevel)))
+        : 100; // по умолчанию максимально «плохой»
 
     const res = await pg.query(
       `INSERT INTO bad_addresses
