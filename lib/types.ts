@@ -52,3 +52,18 @@ export interface WalletAnalysisResult {
     badAddressesCount?: number;
   };
 }
+
+export type UserRole = 'user' | 'pusher' | 'admin';
+
+export interface User {
+  id: number;
+  email: string;
+  role: UserRole;
+  createdAt: string;
+}
+
+export interface AuthSession {
+  userId: number;
+  role: UserRole;
+  email: string;
+}

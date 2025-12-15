@@ -1,4 +1,6 @@
 // lib/db.ts
+import crypto from 'crypto';
+import type { UserRole, AuthSession } from './types';
 import { Pool } from 'pg';
 import type { SupportedBlockchain, WalletAnalysisResult } from './types';
 
@@ -16,6 +18,14 @@ export const pg = new Pool({
   ...connectionConfig,
   max: 5,
 });
+
+export interface DbUser {
+  id: number;
+  email: string;
+  password_hash: string | null;
+  role: UserRole;
+  created_at: string;
+}
 
 // То, что возвращает getUserHistory наружу (camelCase)
 export interface HistoryRow {
@@ -118,3 +128,93 @@ export async function getUserHistory(
     client.release();
   }
 }
+
+export async function getUserByEmail(email: string): Promise<DbUser | null> {
+  const res = await pg.query(
+    `
+    SELECT id, email, password_hash, role, created_at
+    FROM users
+    WHERE email = $1
+    `,
+    [email],
+  );
+
+  return res.rows[0] ?? null;
+}
+
+export async function createUserWithEmail(
+  email: string,
+  passwordHash: string,
+): Promise<DbUser> {
+  const res = await pg.query(
+    `
+    INSERT INTO users (email, password_hash)
+    VALUES ($1, $2)
+    RETURNING id, email, password_hash, role, created_at
+    `,
+    [email, passwordHash],
+  );
+
+  return res.rows[0];
+}
+
+export async function updateUserRole(
+  userId: number,
+  role: UserRole,
+): Promise<void> {
+  await pg.query(
+    `
+    UPDATE users
+    SET role = $2
+    WHERE id = $1
+    `,
+    [userId, role],
+  );
+}
+
+export async function createSession(
+  userId: number,
+  ttlHours = 24 * 7, // неделя по умолчанию
+): Promise<{ id: string; expiresAt: Date }> {
+  const id = crypto.randomUUID();
+  const expiresAt = new Date(Date.now() + ttlHours * 3600 * 1000);
+
+  await pg.query(
+    `
+    INSERT INTO sessions (id, user_id, expires_at)
+    VALUES ($1, $2, $3)
+    `,
+    [id, userId, expiresAt.toISOString()],
+  );
+
+  return { id, expiresAt };
+}
+
+export async function getSessionAndUser(
+  sessionId: string,
+): Promise<AuthSession | null> {
+  const res = await pg.query(
+    `
+    SELECT s.user_id, u.email, u.role
+    FROM sessions s
+    JOIN users u ON u.id = s.user_id
+    WHERE s.id = $1
+      AND s.expires_at > NOW()
+    `,
+    [sessionId],
+  );
+
+  const row = res.rows[0];
+  if (!row) return null;
+
+  return {
+    userId: row.user_id,
+    email: row.email,
+    role: row.role,
+  };
+}
+
+export async function deleteSession(sessionId: string): Promise<void> {
+  await pg.query(`DELETE FROM sessions WHERE id = $1`, [sessionId]);
+}
+

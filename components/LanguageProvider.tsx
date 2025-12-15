@@ -19,6 +19,9 @@ type TranslationSchema = {
   auth: {
     login: string;
     register: string;
+    emailLabel: string;
+    passwordLabel: string;
+    logout: string;
   };
   analysisPage: {
     title: string;
@@ -58,6 +61,23 @@ type TranslationSchema = {
   meta: {
     partialAnalysis: string; // 🆕
   };
+  dashboard: {
+    title: string;
+    historyTab: string;
+    badTab: string;
+    adminTab: string;
+    historyTitle: string;
+    historyEmpty: string;
+    badAddTitle: string;
+    badAddBtn: string;
+    badListTitle: string;
+    badEmpty: string;
+    exportCsv: string;
+    adminUsersTitle: string;
+  };
+  common: {
+    saving: string;
+  };
 };
 
 const translations: Record<Locale, TranslationSchema> = {
@@ -70,6 +90,9 @@ const translations: Record<Locale, TranslationSchema> = {
     auth: {
       login: 'Войти',
       register: 'Регистрация',
+      emailLabel: 'Email',
+      passwordLabel: 'Пароль',
+      logout: 'Выйти'
     },
     analysisPage: {
       title: 'Анализ криптовалютного кошелька',
@@ -116,6 +139,24 @@ const translations: Record<Locale, TranslationSchema> = {
       partialAnalysis:
         'Анализ выполнен частично: не удалось получить данные по части адресов.',
     },
+    dashboard: {
+      title: 'Личный кабинет',
+      historyTab: 'История анализов',
+      badTab: 'Плохие адреса',
+      adminTab: 'Пользователи и роли',
+      historyTitle: 'Ваши последние анализы',
+      historyEmpty:
+        'История пуста. Запустите анализ на странице «Анализ кошелька».',
+      badAddTitle: 'Добавить плохой адрес',
+      badAddBtn: 'Добавить адрес',
+      badListTitle: 'База плохих адресов',
+      badEmpty: 'Пока нет ни одного плохого адреса.',
+      exportCsv: 'Экспорт CSV',
+      adminUsersTitle: 'Пользователи и роли',
+    },
+    common: {
+      saving: 'Сохраняем…',
+    },
   },
   en: {
     nav: {
@@ -126,6 +167,9 @@ const translations: Record<Locale, TranslationSchema> = {
     auth: {
       login: 'Sign in',
       register: 'Sign up',
+      emailLabel: 'Email',
+      passwordLabel: 'Password',
+      logout: 'Logout'
     },
     analysisPage: {
       title: 'Crypto wallet analysis',
@@ -170,6 +214,25 @@ const translations: Record<Locale, TranslationSchema> = {
     meta: {
       partialAnalysis:
         'Analysis was partially completed: failed to retrieve data for some addresses.',
+    },
+
+    dashboard: {
+      title: 'Personal cabinet',
+      historyTab: 'History',
+      badTab: 'Bad addresses',
+      adminTab: 'Users & roles',
+      historyTitle: 'Your recent analyses',
+      historyEmpty:
+        'No analyses yet. Run one on the “Wallet analysis” page.',
+      badAddTitle: 'Add bad address',
+      badAddBtn: 'Add address',
+      badListTitle: 'Bad address database',
+      badEmpty: 'No bad addresses yet.',
+      exportCsv: 'Export CSV',
+      adminUsersTitle: 'Users & roles',
+    },
+    common: {
+      saving: 'Saving…',
     },
   },
 };
