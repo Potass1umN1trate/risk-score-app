@@ -20,11 +20,12 @@ function AnalysisPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  const urlAddress = searchParams.get('addr') || '';
-  const urlDepthStr = searchParams.get('depth');
-  const urlBlockchainParam = searchParams.get('blockchain') as
+  // searchParams по типам может быть null – аккуратно достаём
+  const urlAddress = searchParams?.get('addr') ?? '';
+  const urlDepthStr = searchParams?.get('depth') ?? null;
+  const urlBlockchainParam = (searchParams?.get('blockchain') as
     | SupportedBlockchain
-    | null;
+    | null) ?? null;
 
   const parsedDepth = urlDepthStr ? Number(urlDepthStr) : NaN;
   const depth =

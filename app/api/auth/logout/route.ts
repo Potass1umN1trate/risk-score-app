@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { clearSessionCookie, SESSION_COOKIE_NAME } from '@/lib/auth';
 import { deleteSession } from '@/lib/db';
 
+
 export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {

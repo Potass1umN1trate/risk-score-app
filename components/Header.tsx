@@ -2,9 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { useEffect, useState } from 'react';
 import { useLanguage } from './LanguageProvider';
 import type { UserRole } from '@/lib/types';
+import { signOut, useSession } from 'next-auth/react';
 
 type MeUser = {
   userId: number;
@@ -17,51 +17,16 @@ export default function Header() {
   const router = useRouter();
   const { locale, setLocale, t } = useLanguage();
 
-  const [user, setUser] = useState<MeUser | null | undefined>(undefined);
-  const [loadingMe, setLoadingMe] = useState(true);
+  const { data: session, status } = useSession();
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadMe() {
-      try {
-        const res = await fetch('/api/auth/me', {
-          method: 'GET',
-        });
-
-        if (!res.ok) {
-          if (!cancelled) setUser(null);
-          return;
+  const user: MeUser | null =
+    session?.user
+      ? {
+          userId: Number((session.user as any).id),
+          email: session.user.email ?? '',
+          role: (session.user as any).role as UserRole,
         }
-
-        const data = await res.json();
-        if (!cancelled) {
-          setUser(data.user ?? null);
-        }
-      } catch {
-        if (!cancelled) setUser(null);
-      } finally {
-        if (!cancelled) setLoadingMe(false);
-      }
-    }
-
-    loadMe();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function handleLogout() {
-    try {
-      await fetch('/api/auth/logout', { method: 'POST' });
-    } catch {
-      // пофиг, просто считаем, что разлогинились
-    } finally {
-      setUser(null);
-      router.push('/');
-      router.refresh();
-    }
-  }
+      : null;
 
   const navItems = [
     { href: '/', label: t.nav.home },
@@ -97,7 +62,7 @@ export default function Header() {
         </nav>
 
         <div className="flex gap-2 items-center">
-          {/* Переключатель RU/EN */}
+          {/* переключатель RU/EN */}
           <button
             type="button"
             onClick={() => setLocale(locale === 'ru' ? 'en' : 'ru')}
@@ -106,8 +71,8 @@ export default function Header() {
             {locale === 'ru' ? 'EN' : 'RU'}
           </button>
 
-          {/* Пока не знаем юзера — просто моргаем пустым местом */}
-          {loadingMe ? null : user ? (
+          {/* пока сессия грузится – ничего не рисуем */}
+          {status === 'loading' ? null : user ? (
             <>
               <div className="flex flex-col items-end mr-2">
                 <span className="text-xs text-slate-200">
@@ -119,7 +84,7 @@ export default function Header() {
               </div>
               <button
                 type="button"
-                onClick={handleLogout}
+                onClick={() => signOut({ callbackUrl: '/' })}
                 className="text-xs border border-slate-600 rounded-md px-3 py-1 text-slate-200 hover:bg-slate-800"
               >
                 {t.auth.logout ?? 'Logout'}

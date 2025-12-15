@@ -2,7 +2,7 @@
 import { NextResponse } from 'next/server';
 import { performFullAnalysis } from '@/lib/analysis';
 import { saveAnalysis, autoFlagBadAddress } from '@/lib/db';
-import { getSessionUser } from '@/lib/auth';
+import { getSessionUser } from '@/lib/auth-session';
 import type { WalletAnalysisRequest } from '@/lib/types';
 
 // Порог, начиная с которого мы считаем адрес достаточно рискованным,
@@ -43,7 +43,7 @@ export async function POST(req: Request) {
       }
     }
 
-    const user = await getSessionUser(req);
+    const user = await getSessionUser();
     // У тебя здесь была ошибка: в AuthSession поле userId, а не id
     const userId = user ? String(user.userId) : null;
 

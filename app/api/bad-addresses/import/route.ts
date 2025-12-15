@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { pg } from '@/lib/db';
-import { getSessionUser } from '@/lib/auth';
+import { getSessionUser } from '@/lib/auth-session';
 import type { SupportedBlockchain } from '@/lib/types';
 import { isValidAddressFormat } from '@/lib/blockchainValidators';
 
@@ -35,7 +35,7 @@ function splitCsvLine(line: string): string[] {
 
 export async function POST(req: NextRequest) {
   try {
-    const user = await getSessionUser(req);
+    const user = await getSessionUser();
     if (!user || (user.role !== 'pusher' && user.role !== 'admin')) {
       return NextResponse.json(
         { message: 'Forbidden' },

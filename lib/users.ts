@@ -1,16 +1,7 @@
 // lib/users.ts
 import { pg } from './db';
+import type { DbUser } from './db';
 import type { UserRole } from './types';
-
-export interface DbUser {
-  id: number;
-  email: string;
-  password_hash: string | null;
-  github_id: string | null;
-  metamask_address: string | null;
-  role: UserRole;
-  created_at: Date;
-}
 
 export async function findUserByEmail(email: string): Promise<DbUser | null> {
   const res = await pg.query(

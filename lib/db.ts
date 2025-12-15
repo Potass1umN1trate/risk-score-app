@@ -23,8 +23,10 @@ export interface DbUser {
   id: number;
   email: string;
   password_hash: string | null;
+  github_id: string | null;
+  metamask_address: string | null;
   role: UserRole;
-  created_at: string;
+  created_at: Date;
 }
 
 // То, что возвращает getUserHistory наружу (camelCase)
@@ -130,13 +132,19 @@ export async function getUserHistory(
 }
 
 export async function getUserByEmail(email: string): Promise<DbUser | null> {
-  const res = await pg.query(
+  const res = await pg.query<DbUser>(
     `
-    SELECT id, email, password_hash, role, created_at
+    SELECT id,
+           email,
+           password_hash,
+           github_id,
+           metamask_address,
+           role,
+           created_at
     FROM users
     WHERE email = $1
     `,
-    [email],
+    [email.toLowerCase()],
   );
 
   return res.rows[0] ?? null;
@@ -146,13 +154,19 @@ export async function createUserWithEmail(
   email: string,
   passwordHash: string,
 ): Promise<DbUser> {
-  const res = await pg.query(
+  const res = await pg.query<DbUser>(
     `
     INSERT INTO users (email, password_hash)
     VALUES ($1, $2)
-    RETURNING id, email, password_hash, role, created_at
+    RETURNING id,
+              email,
+              password_hash,
+              github_id,
+              metamask_address,
+              role,
+              created_at
     `,
-    [email, passwordHash],
+    [email.toLowerCase(), passwordHash],
   );
 
   return res.rows[0];
@@ -251,4 +265,9 @@ export async function autoFlagBadAddress(params: {
       null,
     ],
   );
+}
+
+export async function getDbClient() {
+  // удобный helper для транзакций
+  return pg.connect();
 }

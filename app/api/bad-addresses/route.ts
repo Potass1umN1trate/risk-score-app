@@ -1,13 +1,13 @@
 // app/api/bad-addresses/route.ts
 import { NextResponse } from 'next/server';
 import { pg } from '@/lib/db';
-import { getSessionUser } from '@/lib/auth';
+import { getSessionUser } from '@/lib/auth-session';
 import type { SupportedBlockchain } from '@/lib/types';
 import { isValidAddressFormat } from '@/lib/blockchainValidators';
 
 export async function GET(req: Request) {
   try {
-    const user = await getSessionUser(req);
+    const user = await getSessionUser();
     if (!user) {
       return NextResponse.json(
         { message: 'Unauthorized' },
@@ -75,7 +75,7 @@ export async function GET(req: Request) {
 
 export async function POST(req: Request) {
   try {
-    const user = await getSessionUser(req);
+    const user = await getSessionUser();
     if (!user || (user.role !== 'pusher' && user.role !== 'admin')) {
         return NextResponse.json(
             { message: 'Forbidden' },

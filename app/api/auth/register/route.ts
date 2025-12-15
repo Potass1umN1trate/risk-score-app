@@ -1,9 +1,7 @@
 // app/api/auth/register/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { hashPassword, setSessionCookie } from '@/lib/auth';
+import { hashPassword } from '@/lib/auth-password';
 import { createUserWithEmail, getUserByEmail, createSession } from '@/lib/db';
-
-export const runtime = 'nodejs';
 
 export async function POST(req: NextRequest) {
   try {
@@ -35,16 +33,12 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await hashPassword(password);
     const user = await createUserWithEmail(email, passwordHash);
-    const { id: sessionId, expiresAt } = await createSession(user.id);
-
-    const res = NextResponse.json({
+    
+    return NextResponse.json({
       id: user.id,
       email: user.email,
       role: user.role,
     });
-
-    setSessionCookie(res, sessionId, expiresAt);
-    return res;
   } catch (err) {
     console.error('Register error', err);
     return NextResponse.json(

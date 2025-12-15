@@ -1,9 +1,10 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/components/LanguageProvider';
 import { BadAddressesImport } from '@/components/BadAddressesImport';
+import { useSession } from 'next-auth/react';
 import type { SupportedBlockchain, UserRole } from '@/lib/types';
 
 type MeUser = {
@@ -46,11 +47,33 @@ type AdminUserRow = {
 
 type TabKey = 'history' | 'bad' | 'admin';
 
+async function safeJson(res: Response) {
+  try {
+    return await res.json();
+  } catch {
+    return null;
+  }
+}
+
 export default function DashboardPage() {
   const router = useRouter();
   const { t } = useLanguage();
+  const { data: session, status } = useSession();
 
-  const [me, setMe] = useState<MeUser | null | undefined>(undefined);
+  const me: MeUser | null = useMemo(() => {
+    if (!session?.user) return null;
+    const idRaw = (session.user as any).id;
+    const roleRaw = (session.user as any).role;
+    const userId = Number(idRaw);
+
+    if (!Number.isFinite(userId)) return null;
+    return {
+      userId,
+      email: session.user.email ?? '',
+      role: roleRaw as UserRole,
+    };
+  }, [session]);
+
   const [activeTab, setActiveTab] = useState<TabKey>('history');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -59,7 +82,6 @@ export default function DashboardPage() {
   const [badAddresses, setBadAddresses] = useState<BadAddressRow[]>([]);
   const [adminUsers, setAdminUsers] = useState<AdminUserRow[]>([]);
 
-  // форма добавления плохого адреса
   const [newBadAddr, setNewBadAddr] = useState({
     blockchain: 'bitcoin',
     address: '',
@@ -70,71 +92,81 @@ export default function DashboardPage() {
   });
   const [savingBad, setSavingBad] = useState(false);
 
+  // redirect если не залогинен
   useEffect(() => {
-    let cancelled = false;
+    if (status === 'loading') return;
+    if (!me) router.push('/login');
+  }, [status, me, router]);
 
-    async function loadAll() {
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    if (!me) return;
+
+    const ac = new AbortController();
+
+    (async () => {
+      setLoading(true);
+      setError(null);
+
       try {
-        // 1. кто мы
-        const meRes = await fetch('/api/auth/me');
-        const meData = await meRes.json();
-        const user: MeUser | null = meData.user ?? null;
-
-        if (!user) {
-          router.push('/login');
-          return;
-        }
-        if (cancelled) return;
-        setMe(user);
-
-        // 2. параллельно грузим историю и плохие адреса
         const [historyRes, badRes] = await Promise.all([
-          fetch('/api/history'),
-          fetch('/api/bad-addresses'),
+          fetch('/api/history', { signal: ac.signal }),
+          fetch('/api/bad-addresses', { signal: ac.signal }),
         ]);
 
-        const historyData: HistoryItem[] = await historyRes.json();
-        const badData: BadAddressRow[] = await badRes.json();
+        if (!historyRes.ok || !badRes.ok) {
+          const hErr = !historyRes.ok ? await safeJson(historyRes) : null;
+          const bErr = !badRes.ok ? await safeJson(badRes) : null;
+          throw new Error(hErr?.message || bErr?.message || 'Failed to load dashboard');
+        }
 
-        if (cancelled) return;
+        const historyData: HistoryItem[] = (await historyRes.json()) ?? [];
+        const badData: BadAddressRow[] = (await badRes.json()) ?? [];
+
         setHistory(historyData);
         setBadAddresses(badData);
 
-        // 3. если админ – подгрузим ещё список пользователей
-        if (user.role === 'admin') {
-          const usersRes = await fetch('/api/admin/users');
-          if (usersRes.ok) {
-            const usersData: AdminUserRow[] = await usersRes.json();
-            if (!cancelled) setAdminUsers(usersData);
+        if (me.role === 'admin') {
+          const usersRes = await fetch('/api/admin/users', { signal: ac.signal });
+          if (!usersRes.ok) {
+            const uErr = await safeJson(usersRes);
+            throw new Error(uErr?.message || 'Failed to load users');
           }
+          const usersData: AdminUserRow[] = (await usersRes.json()) ?? [];
+          setAdminUsers(usersData);
+        } else {
+          setAdminUsers([]);
         }
-      } catch (e) {
+      } catch (e: any) {
+        if (e?.name === 'AbortError') return;
         console.error(e);
-        if (!cancelled) setError('Failed to load dashboard');
+        setError(e?.message || 'Failed to load dashboard');
       } finally {
-        if (!cancelled) setLoading(false);
+        setLoading(false);
       }
-    }
+    })();
 
-    loadAll();
-    return () => {
-      cancelled = true;
-    };
-  }, [router]);
+    return () => ac.abort();
+  }, [status, me?.userId, me?.role]);
 
-  // 👉 клик по строке истории → редирект на /analysis с нужными query
-  function handleHistoryRowClick(item: HistoryItem) {
-    const params = new URLSearchParams({
-      addr: item.rootAddress,
-      blockchain: item.blockchain,
-      depth: String(item.depth ?? 1),
-    });
-    router.push(`/analysis?${params.toString()}`);
-  }
+  const handleHistoryRowClick = useCallback(
+    (item: HistoryItem) => {
+      const params = new URLSearchParams({
+        addr: item.rootAddress,
+        blockchain: item.blockchain,
+        depth: String(item.depth ?? 1),
+      });
+      router.push(`/analysis?${params.toString()}`);
+    },
+    [router],
+  );
 
   async function handleAddBadAddress(e: React.FormEvent) {
     e.preventDefault();
     if (!me || (me.role !== 'pusher' && me.role !== 'admin')) return;
+
+    const address = newBadAddr.address.trim();
+    if (!address) return;
 
     setSavingBad(true);
     setError(null);
@@ -145,21 +177,18 @@ export default function DashboardPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           blockchain: newBadAddr.blockchain,
-          address: newBadAddr.address.trim(),
+          address,
           tag: newBadAddr.tag.trim() || null,
-          riskLevel: Number(newBadAddr.riskLevel) || 80,
+          riskLevel: Math.min(100, Math.max(0, Number(newBadAddr.riskLevel) || 80)),
           source: newBadAddr.source.trim() || null,
           evidenceUrl: newBadAddr.evidenceUrl.trim() || null,
         }),
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.message || 'Failed to save bad address');
-      }
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.message || 'Failed to save bad address');
 
-      // обновляем таблицу
-      const updatedRow: BadAddressRow = await res.json();
+      const updatedRow: BadAddressRow = data;
       setBadAddresses((prev) => [updatedRow, ...prev]);
 
       setNewBadAddr({
@@ -171,7 +200,7 @@ export default function DashboardPage() {
         evidenceUrl: '',
       });
     } catch (e: any) {
-      setError(e.message || 'Failed to save bad address');
+      setError(e?.message || 'Failed to save bad address');
     } finally {
       setSavingBad(false);
     }
@@ -179,32 +208,24 @@ export default function DashboardPage() {
 
   async function handleDeleteBadAddress(row: BadAddressRow) {
     if (!me) return;
-    const canDelete =
-      me.role === 'admin' || String(me.userId) === String(row.user_id);
+
+    const canDelete = me.role === 'admin' || String(me.userId) === String(row.user_id);
     if (!canDelete) return;
 
     if (!confirm(`Delete bad address ${row.address}?`)) return;
 
     try {
-      const res = await fetch(`/api/bad-addresses/${row.id}`, {
-        method: 'DELETE',
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.message || 'Failed to delete');
-      }
+      const res = await fetch(`/api/bad-addresses/${row.id}`, { method: 'DELETE' });
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.message || 'Failed to delete');
 
       setBadAddresses((prev) => prev.filter((b) => b.id !== row.id));
     } catch (e: any) {
-      setError(e.message || 'Failed to delete');
+      setError(e?.message || 'Failed to delete');
     }
   }
 
-  async function handleChangeUserRole(
-    id: number,
-    newRole: UserRole,
-  ) {
+  async function handleChangeUserRole(id: number, newRole: UserRole) {
     if (!me || me.role !== 'admin') return;
 
     try {
@@ -214,17 +235,13 @@ export default function DashboardPage() {
         body: JSON.stringify({ role: newRole }),
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.message || 'Failed to update role');
-      }
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.message || 'Failed to update role');
 
-      const updated: AdminUserRow = await res.json();
-      setAdminUsers((prev) =>
-        prev.map((u) => (u.id === updated.id ? updated : u)),
-      );
+      const updated: AdminUserRow = data;
+      setAdminUsers((prev) => prev.map((u) => (u.id === updated.id ? updated : u)));
     } catch (e: any) {
-      setError(e.message || 'Failed to update role');
+      setError(e?.message || 'Failed to update role');
     }
   }
 
@@ -233,25 +250,23 @@ export default function DashboardPage() {
     if (!confirm(`Delete user #${id}?`)) return;
 
     try {
-      const res = await fetch(`/api/admin/users/${id}`, {
-        method: 'DELETE',
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.message || 'Failed to delete user');
-      }
+      const res = await fetch(`/api/admin/users/${id}`, { method: 'DELETE' });
+      const data = await safeJson(res);
+      if (!res.ok) throw new Error(data?.message || 'Failed to delete user');
 
       setAdminUsers((prev) => prev.filter((u) => u.id !== id));
     } catch (e: any) {
-      setError(e.message || 'Failed to delete user');
+      setError(e?.message || 'Failed to delete user');
     }
   }
 
   function exportBadCsv() {
-    window.location.href = '/api/bad-addresses?format=csv';
+    // лучше так, чем location.href: не ломает историю/SPA меньше дергается
+    window.open('/api/bad-addresses?format=csv', '_blank');
   }
 
-  if (loading || me === undefined) {
+  const authLoading = status === 'loading';
+  if (authLoading || loading) {
     return (
       <section className="max-w-6xl mx-auto mt-12 px-4">
         <p className="text-slate-300 text-sm">Loading…</p>
@@ -259,10 +274,7 @@ export default function DashboardPage() {
     );
   }
 
-  if (!me) {
-    // на всякий случай
-    return null;
-  }
+  if (!me) return null;
 
   return (
     <section className="max-w-6xl mx-auto mt-8 px-4 space-y-6">
@@ -277,11 +289,8 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {error && (
-        <p className="text-sm text-red-400">{error}</p>
-      )}
+      {error && <p className="text-sm text-red-400">{error}</p>}
 
-      {/* Tabs */}
       <div className="flex gap-2 border-b border-slate-800">
         <button
           className={`px-3 py-2 text-sm ${
@@ -317,12 +326,13 @@ export default function DashboardPage() {
         )}
       </div>
 
-      {/* TAB: HISTORY */}
+      {/* HISTORY */}
       {activeTab === 'history' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <h2 className="text-lg font-medium mb-3">
             {t.dashboard?.historyTitle ?? 'Your recent analyses'}
           </h2>
+
           {history.length === 0 ? (
             <p className="text-sm text-slate-400">
               {t.dashboard?.historyEmpty ??
@@ -348,19 +358,15 @@ export default function DashboardPage() {
                       className="border-b border-slate-900 cursor-pointer hover:bg-slate-800/40"
                     >
                       <td className="py-2 pr-2 text-slate-300">
-                        {new Date(h.createdAt).toLocaleString()}
+                        {new Date(h.createdAt).toLocaleString('en-GB')}
                       </td>
-                      <td className="py-2 pr-2 text-slate-300">
-                        {h.blockchain}
-                      </td>
+                      <td className="py-2 pr-2 text-slate-300">{h.blockchain}</td>
                       <td className="py-2 pr-2 text-slate-400 max-w-[260px] truncate">
                         {h.rootAddress}
                       </td>
+                      <td className="py-2 pr-2 text-slate-300">{h.depth}</td>
                       <td className="py-2 pr-2 text-slate-300">
-                        {h.depth}
-                      </td>
-                      <td className="py-2 pr-2 text-slate-300">
-                        {h.globalRiskScore.toFixed(1)}
+                        {Number.isFinite(h.globalRiskScore) ? h.globalRiskScore.toFixed(1) : '—'}
                       </td>
                     </tr>
                   ))}
@@ -371,10 +377,9 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* TAB: BAD ADDRESSES */}
+      {/* BAD */}
       {activeTab === 'bad' && (
         <div className="space-y-4">
-          {/* форма добавления – только pusher/admin */}
           {(me.role === 'pusher' || me.role === 'admin') && (
             <form
               onSubmit={handleAddBadAddress}
@@ -384,25 +389,17 @@ export default function DashboardPage() {
                 {t.dashboard?.badAddTitle ?? 'Add bad address'}
               </h2>
 
-              {/* импорт CSV */}
               <BadAddressesImport
-                onImported={(rows) => {
-                  setBadAddresses((prev) => [...rows, ...prev]);
-                }}
+                onImported={(rows) => setBadAddresses((prev) => [...rows, ...prev])}
               />
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-3">
                 <div>
-                  <label className="block text-xs mb-1 text-slate-400">
-                    Blockchain
-                  </label>
+                  <label className="block text-xs mb-1 text-slate-400">Blockchain</label>
                   <select
                     value={newBadAddr.blockchain}
                     onChange={(e) =>
-                      setNewBadAddr((s) => ({
-                        ...s,
-                        blockchain: e.target.value,
-                      }))
+                      setNewBadAddr((s) => ({ ...s, blockchain: e.target.value }))
                     }
                     className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-sm"
                   >
@@ -410,10 +407,9 @@ export default function DashboardPage() {
                     <option value="ethereum">Ethereum</option>
                   </select>
                 </div>
+
                 <div>
-                  <label className="block text-xs mb-1 text-slate-400">
-                    Address
-                  </label>
+                  <label className="block text-xs mb-1 text-slate-400">Address</label>
                   <input
                     value={newBadAddr.address}
                     onChange={(e) =>
@@ -423,20 +419,16 @@ export default function DashboardPage() {
                     className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-sm"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs mb-1 text-slate-400">
-                    Risk level (0–100)
-                  </label>
+                  <label className="block text-xs mb-1 text-slate-400">Risk level (0–100)</label>
                   <input
                     type="number"
                     min={0}
                     max={100}
                     value={newBadAddr.riskLevel}
                     onChange={(e) =>
-                      setNewBadAddr((s) => ({
-                        ...s,
-                        riskLevel: e.target.value,
-                      }))
+                      setNewBadAddr((s) => ({ ...s, riskLevel: e.target.value }))
                     }
                     className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-sm"
                   />
@@ -445,21 +437,16 @@ export default function DashboardPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-xs mb-1 text-slate-400">
-                    Tag
-                  </label>
+                  <label className="block text-xs mb-1 text-slate-400">Tag</label>
                   <input
                     value={newBadAddr.tag}
-                    onChange={(e) =>
-                      setNewBadAddr((s) => ({ ...s, tag: e.target.value }))
-                    }
+                    onChange={(e) => setNewBadAddr((s) => ({ ...s, tag: e.target.value }))}
                     className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-sm"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs mb-1 text-slate-400">
-                    Source
-                  </label>
+                  <label className="block text-xs mb-1 text-slate-400">Source</label>
                   <input
                     value={newBadAddr.source}
                     onChange={(e) =>
@@ -468,17 +455,13 @@ export default function DashboardPage() {
                     className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-sm"
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs mb-1 text-slate-400">
-                    Evidence URL
-                  </label>
+                  <label className="block text-xs mb-1 text-slate-400">Evidence URL</label>
                   <input
                     value={newBadAddr.evidenceUrl}
                     onChange={(e) =>
-                      setNewBadAddr((s) => ({
-                        ...s,
-                        evidenceUrl: e.target.value,
-                      }))
+                      setNewBadAddr((s) => ({ ...s, evidenceUrl: e.target.value }))
                     }
                     className="w-full bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-sm"
                   />
@@ -490,14 +473,11 @@ export default function DashboardPage() {
                 disabled={savingBad}
                 className="mt-2 bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 px-4 py-2 rounded-md text-sm font-medium"
               >
-                {savingBad
-                  ? t.common?.saving ?? 'Saving…'
-                  : t.dashboard?.badAddBtn ?? 'Add address'}
+                {savingBad ? t.common?.saving ?? 'Saving…' : t.dashboard?.badAddBtn ?? 'Add address'}
               </button>
             </form>
           )}
 
-          {/* Таблица плохих адресов + экспорт */}
           <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
             <div className="flex items-center justify-between mb-3">
               <h2 className="text-lg font-medium">
@@ -535,35 +515,24 @@ export default function DashboardPage() {
                   <tbody>
                     {badAddresses.map((b) => {
                       const canDelete =
-                        me.role === 'admin' ||
-                        String(me.userId) === String(b.user_id);
+                        me.role === 'admin' || String(me.userId) === String(b.user_id);
 
                       return (
                         <tr key={b.id} className="border-b border-slate-900">
-                          <td className="py-1 pr-2 text-slate-400">
-                            {b.id}
-                          </td>
-                          <td className="py-1 pr-2 text-slate-300">
-                            {b.blockchain}
-                          </td>
+                          <td className="py-1 pr-2 text-slate-400">{b.id}</td>
+                          <td className="py-1 pr-2 text-slate-300">{b.blockchain}</td>
                           <td className="py-1 pr-2 text-slate-300 max-w-[260px] truncate">
                             {b.address}
                           </td>
-                          <td className="py-1 pr-2 text-slate-300">
-                            {b.tag}
-                          </td>
-                          <td className="py-1 pr-2 text-slate-300">
-                            {b.risk_level}
-                          </td>
+                          <td className="py-1 pr-2 text-slate-300">{b.tag}</td>
+                          <td className="py-1 pr-2 text-slate-300">{b.risk_level}</td>
                           <td className="py-1 pr-2 text-slate-300 max-w-[160px] truncate">
                             {b.source}
                           </td>
                           <td className="py-1 pr-2 text-slate-300 max-w-[200px] truncate">
                             {b.evidence_url}
                           </td>
-                          <td className="py-1 pr-2 text-slate-400">
-                            {b.user_id ?? '—'}
-                          </td>
+                          <td className="py-1 pr-2 text-slate-400">{b.user_id ?? '—'}</td>
                           <td className="py-1 pr-2 text-right">
                             {canDelete && (
                               <button
@@ -586,7 +555,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      {/* TAB: ADMIN – юзеры и роли */}
+      {/* ADMIN */}
       {activeTab === 'admin' && me.role === 'admin' && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-4">
           <h2 className="text-lg font-medium mb-3">
@@ -594,9 +563,7 @@ export default function DashboardPage() {
           </h2>
 
           {adminUsers.length === 0 ? (
-            <p className="text-sm text-slate-400">
-              No users found.
-            </p>
+            <p className="text-sm text-slate-400">No users found.</p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-xs">
@@ -612,20 +579,13 @@ export default function DashboardPage() {
                 <tbody>
                   {adminUsers.map((u) => (
                     <tr key={u.id} className="border-b border-slate-900">
-                      <td className="py-2 pr-2 text-slate-400">
-                        {u.id}
-                      </td>
-                      <td className="py-2 pr-2 text-slate-300">
-                        {u.email}
-                      </td>
+                      <td className="py-2 pr-2 text-slate-400">{u.id}</td>
+                      <td className="py-2 pr-2 text-slate-300">{u.email}</td>
                       <td className="py-2 pr-2 text-slate-300">
                         <select
                           value={u.role}
                           onChange={(e) =>
-                            handleChangeUserRole(
-                              u.id,
-                              e.target.value as UserRole,
-                            )
+                            handleChangeUserRole(u.id, e.target.value as UserRole)
                           }
                           className="bg-slate-950 border border-slate-700 rounded-md px-2 py-1 text-xs"
                         >
@@ -635,7 +595,7 @@ export default function DashboardPage() {
                         </select>
                       </td>
                       <td className="py-2 pr-2 text-slate-400">
-                        {new Date(u.createdAt).toLocaleString()}
+                        {new Date(u.createdAt).toLocaleString('en-GB')}
                       </td>
                       <td className="py-2 pr-2 text-right">
                         <button

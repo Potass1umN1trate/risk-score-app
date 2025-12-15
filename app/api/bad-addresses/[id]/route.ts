@@ -1,14 +1,14 @@
 // app/api/bad-addresses/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { pg } from '@/lib/db';
-import { getSessionUser } from '@/lib/auth';
+import { getSessionUser } from '@/lib/auth-session';
 
 export async function DELETE(
   req: NextRequest,
   context: { params: Promise<{ id: string }> },
 ) {
   try {
-    const user = await getSessionUser(req);
+    const user = await getSessionUser();
     if (!user) {
       return NextResponse.json(
         { message: 'Unauthorized' },

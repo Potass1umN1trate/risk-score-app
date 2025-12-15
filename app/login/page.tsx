@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useLanguage } from '@/components/LanguageProvider';
 import Link from 'next/link';
+import { signIn } from 'next-auth/react';
 
 export default function LoginPage() {
   const { t } = useLanguage();
@@ -11,38 +12,94 @@ export default function LoginPage() {
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-  const [loading, setLoading] = useState(false);
+
+  const [loadingEmail, setLoadingEmail] = useState(false);
+  const [loadingWallet, setLoadingWallet] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-    setLoading(true);
+    setLoadingEmail(true);
 
     try {
-      const res = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          email: email.trim(),
-          password,
-        }),
+      const res = await signIn('credentials', {
+        redirect: false,
+        email: email.trim().toLowerCase(),
+        password,
       });
 
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        throw new Error(data?.message || 'Login failed');
+      if (res?.error) {
+        setError(res.error || 'Login failed');
+        return;
       }
 
-      // успех — кидаем на дашборд (или /analysis, как захочешь)
       router.push('/dashboard');
       router.refresh();
-    } catch (err: any) {
-      setError(err.message || 'Unknown error');
     } finally {
-      setLoading(false);
+      setLoadingEmail(false);
     }
   }
+
+  async function handleMetaMaskLogin() {
+    setError(null);
+    setLoadingWallet(true);
+
+    try {
+      const ethereum = (window as any)?.ethereum;
+      if (!ethereum) throw new Error('MetaMask не найден. Установи расширение MetaMask.');
+
+      // 1) nonce (важно: сервер ставит httpOnly cookie mm_nonce)
+      const nonceRes = await fetch('/api/auth/metamask/nonce', { method: 'GET' });
+      if (!nonceRes.ok) throw new Error('Не удалось получить nonce (server error)');
+      const { nonce } = await nonceRes.json();
+      if (!nonce) throw new Error('Nonce пустой (server bug)');
+
+      // 2) connect
+      const accounts: string[] = await ethereum.request({ method: 'eth_requestAccounts' });
+      const address = accounts?.[0];
+      if (!address) throw new Error('MetaMask не вернул адрес');
+
+      // 3) message — должен совпадать с тем, что парсит authorize()
+      const domain = window.location.host;
+      const message =
+        `Risk Score Crypto App Login\n` +
+        `Domain: ${domain}\n` +
+        `Address: ${address}\n` +
+        `Nonce: ${nonce}\n` +
+        `Issued At: ${new Date().toISOString()}`;
+
+      // 4) signature
+      const signature: string = await ethereum.request({
+        method: 'personal_sign',
+        params: [message, address],
+      });
+
+      if (!signature) throw new Error('Не удалось получить подпись');
+
+      // 5) signIn — НЕ передавай address, только message+signature
+      const res = await signIn('metamask', {
+        redirect: false,
+        message,
+        signature,
+      });
+
+      if (res?.error) {
+        setError(res.error);
+        return;
+      }
+
+      router.push('/dashboard');
+      router.refresh();
+    } catch (e: any) {
+      console.error(e);
+      setError(e?.message || 'MetaMask sign-in failed');
+    } finally {
+      setLoadingWallet(false);
+    }
+  }
+
+  const disabledAll = loadingEmail || loadingWallet;
 
   return (
     <section className="max-w-md mx-auto mt-12">
@@ -53,64 +110,59 @@ export default function LoginPage() {
         className="space-y-4 bg-slate-900 border border-slate-800 p-4 rounded-xl"
       >
         <div>
-          <label className="block text-sm mb-1">
-            {t.auth.emailLabel}
-          </label>
+          <label className="block text-sm mb-1">{t.auth.emailLabel}</label>
           <input
             type="email"
             autoComplete="email"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
-            className="w-full px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-sm"
+            disabled={disabledAll}
+            className="w-full px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-sm disabled:opacity-60"
             placeholder="you@example.com"
           />
         </div>
 
         <div>
-          <label className="block text-sm mb-1">
-            {t.auth.passwordLabel}
-          </label>
+          <label className="block text-sm mb-1">{t.auth.passwordLabel}</label>
           <input
             type="password"
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
-            className="w-full px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-sm"
+            disabled={disabledAll}
+            className="w-full px-3 py-2 rounded-md bg-slate-950 border border-slate-700 text-sm disabled:opacity-60"
           />
         </div>
 
-        {error && (
-          <p className="text-sm text-red-400">
-            {error}
-          </p>
-        )}
+        {error && <p className="text-sm text-red-400">{error}</p>}
 
         <button
           type="submit"
-          disabled={loading}
+          disabled={disabledAll}
           className="w-full bg-emerald-500 hover:bg-emerald-400 disabled:opacity-60 text-slate-950 px-4 py-2 rounded-md text-sm font-medium"
         >
-          {loading ? '…' : t.auth.login}
+          {loadingEmail ? '…' : t.auth.login}
         </button>
 
-        {/* Заглушки под GitHub/MetaMask — пока просто disabled.
-            Когда сделаем OAuth, сюда повесим редиректы. */}
         <div className="pt-2 space-y-2">
           <button
             type="button"
-            disabled
-            className="w-full border border-slate-700 rounded-md px-4 py-2 text-sm text-slate-300 disabled:opacity-60"
+            disabled={disabledAll}
+            onClick={() => signIn('github', { callbackUrl: '/dashboard' })}
+            className="w-full border border-slate-700 rounded-md px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-60"
           >
-            Sign in with GitHub (soon)
+            Sign in with GitHub
           </button>
+
           <button
             type="button"
-            disabled
-            className="w-full border border-slate-700 rounded-md px-4 py-2 text-sm text-slate-300 disabled:opacity-60"
+            disabled={disabledAll}
+            onClick={handleMetaMaskLogin}
+            className="w-full border border-slate-700 rounded-md px-4 py-2 text-sm text-slate-300 hover:bg-slate-800 disabled:opacity-60"
           >
-            Sign in with MetaMask (soon)
+            {loadingWallet ? 'Connecting…' : 'Sign in with MetaMask'}
           </button>
         </div>
 

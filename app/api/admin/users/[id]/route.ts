@@ -1,80 +1,62 @@
-// app/api/admin/users/[id]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
-import { pg } from '@/lib/db';
-import { getCurrentUserFromRequest } from '@/lib/auth';
-import type { UserRole } from '@/lib/types';
+import { getServerSession } from 'next-auth/next';
+import { authOptions } from '@/pages/api/auth/[...nextauth]';
+import { getDbClient } from '@/lib/db';
 
-export const runtime = 'nodejs';
+type Ctx = { params: Promise<{ id: string }> };
 
-export async function PATCH(
-  req: NextRequest,
-  context: { params: Promise<{ id: string }> },
-) {
+export async function DELETE(req: NextRequest, { params }: Ctx) {
+  const session = await getServerSession(authOptions);
+
+  const role = (session?.user as any)?.role;
+  const sessionUserId = Number((session?.user as any)?.id);
+
+  if (!session || role !== 'admin') {
+    return NextResponse.json({ message: 'Forbidden' }, { status: 403 });
+  }
+
+  const { id } = await params;
+  const userId = Number(id);
+
+  if (!Number.isFinite(userId) || userId <= 0) {
+    return NextResponse.json({ message: 'Invalid user id' }, { status: 400 });
+  }
+
+  // ✅ защита от самоудаления (иначе можно убить админку одним кликом)
+  if (Number.isFinite(sessionUserId) && sessionUserId === userId) {
+    return NextResponse.json(
+      { message: 'You cannot delete your own account' },
+      { status: 400 },
+    );
+  }
+
+  const client = await getDbClient();
+
   try {
-    const current = await getCurrentUserFromRequest(req);
+    await client.query('BEGIN');
 
-    // только админ имеет право менять роли
-    if (!current || current.role !== 'admin') {
-      return NextResponse.json(
-        { message: 'Forbidden' },
-        { status: 403 },
-      );
+    // если у тебя FK на history -> users, то сначала чистим зависимые таблицы
+    await client.query('DELETE FROM analysis_history WHERE user_id = $1', [userId]);
+
+    // bad_addresses: отвязываем (ты так и делал — ок)
+    await client.query('UPDATE bad_addresses SET user_id = NULL WHERE user_id = $1', [userId]);
+
+    const delRes = await client.query('DELETE FROM users WHERE id = $1', [userId]);
+
+    if ((delRes.rowCount ?? 0) === 0) {
+      await client.query('ROLLBACK');
+      return NextResponse.json({ message: 'User not found' }, { status: 404 });
     }
 
-    // params теперь Promise — вытаскиваем id так
-    const { id: idStr } = await context.params;
-    const userId = Number(idStr);
-
-    if (!Number.isFinite(userId)) {
-      return NextResponse.json(
-        { message: 'Invalid user id' },
-        { status: 400 },
-      );
-    }
-
-    const body = await req.json().catch(() => ({}));
-    const role = body.role as UserRole | undefined;
-
-    if (!role || !['user', 'pusher', 'admin'].includes(role)) {
-      return NextResponse.json(
-        { message: 'Invalid role' },
-        { status: 400 },
-      );
-    }
-
-    const result = await pg.query(
-      `
-        UPDATE users
-        SET role = $1
-        WHERE id = $2
-        RETURNING id, email, role, created_at
-      `,
-      [role, userId],
-    );
-
-    if (result.rowCount === 0) {
-      return NextResponse.json(
-        { message: 'User not found' },
-        { status: 404 },
-      );
-    }
-
-    const row = result.rows[0];
-
-    return NextResponse.json(
-      {
-        id: row.id,
-        email: row.email,
-        role: row.role,
-        createdAt: row.created_at,
-      },
-      { status: 200 },
-    );
-  } catch (err) {
-    console.error('PATCH /api/admin/users/[id] error', err);
-    return NextResponse.json(
-      { message: 'Internal server error' },
-      { status: 500 },
-    );
+    await client.query('COMMIT');
+    return NextResponse.json({ ok: true });
+  } catch (e) {
+    try {
+      await client.query('ROLLBACK');
+    } catch {}
+    console.error('Error deleting user', e);
+    return NextResponse.json({ message: 'Failed to delete user' }, { status: 500 });
+  } finally {
+    client.release();
   }
 }
