@@ -1,31 +1,60 @@
 // lib/riskScore.ts
-import type { GraphNode, GraphLink, ActivityStats } from './types';
+import type { GraphNode, GraphLink } from './types';
 
-interface RiskInput {
+export interface RiskScoreInput {
   nodes: GraphNode[];
   links: GraphLink[];
-  stats: ActivityStats;
+  rootAddress: string; // главный адрес, для которого считаем итоговый риск
 }
 
-export function calculateRiskScore(input: RiskInput): number {
-  const { stats } = input;
+// ограничиваем риск 0–100
+const clamp = (x: number) => Math.max(0, Math.min(100, x));
 
-  let score = 0;
+export function calculateRiskScore({
+  nodes,
+  links,
+  rootAddress,
+}: RiskScoreInput): number {
+  // Быстрый доступ: id -> node
+  const byId = new Map<string, GraphNode>();
+  for (const n of nodes) {
+    byId.set(n.id, n);
+  }
 
-  // Пример факторов:
-  // 1) чем больше транзакций — тем потенциально выше риск
-  if (stats.totalTx > 100) score += 30;
-  else if (stats.totalTx > 20) score += 15;
-  else if (stats.totalTx > 0) score += 5;
+  // Базовый риск корневого адреса (из БД, если он там есть)
+  const root = byId.get(rootAddress);
+  const baseRootRisk = clamp(root?.riskScore ?? 0);
 
-  // 2) большое количество мелких транзакций — признак «обналички»
-  if (stats.smallTxShare > 0.7) score += 40;
-  else if (stats.smallTxShare > 0.4) score += 20;
+  // Собираем соседей корневого адреса по рёбрам графа
+  const neighbors = new Set<string>();
+  for (const link of links) {
+    const src =
+      typeof link.source === 'object'
+        ? (link.source as any).id
+        : String(link.source);
+    const dst =
+      typeof link.target === 'object'
+        ? (link.target as any).id
+        : String(link.target);
 
-  // 3) всплески активности
-  if (stats.peakDayTx > 50) score += 30;
-  else if (stats.peakDayTx > 10) score += 15;
+    if (src === rootAddress && dst !== rootAddress) {
+      neighbors.add(dst);
+    } else if (dst === rootAddress && src !== rootAddress) {
+      neighbors.add(src);
+    }
+  }
 
-  // ограничиваем 0..100
-  return Math.min(100, Math.max(0, score));
+  // Средний риск соседей
+  let neighborsSum = 0;
+  for (const id of neighbors) {
+    const n = byId.get(id);
+    if (!n) continue;
+    neighborsSum += clamp(n.riskScore ?? 0);
+  }
+  const neighborsAvg = neighbors.size ? neighborsSum / neighbors.size : 0;
+
+  // Итог: базовый риск корневого + половина среднего риска соседей
+  const finalRootRisk = clamp(baseRootRisk + neighborsAvg / 2);
+
+  return Math.round(finalRootRisk);
 }

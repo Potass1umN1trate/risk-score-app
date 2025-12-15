@@ -5,24 +5,26 @@ import { performFullAnalysis } from '@/lib/analysis';
 import { saveAnalysis } from '@/lib/db';
 
 export async function POST(req: Request) {
-  console.log('[API] /api/analyze: incoming request');
-
   try {
     const body = (await req.json()) as WalletAnalysisRequest;
-    console.log('[API] /api/analyze body:', body);
+
+    if (!body.address || !body.blockchain || !body.depth) {
+      return NextResponse.json(
+        { message: 'Invalid payload' },
+        { status: 400 },
+      );
+    }
 
     const result = await performFullAnalysis(body);
 
-    // временный userId — потом заменишь на реальную авторизацию
+    // пока демо-пользователь
     await saveAnalysis('demo-user-id', result);
-
-    console.log('[API] /api/analyze OK, riskScore =', result.globalRiskScore);
 
     return NextResponse.json(result, { status: 200 });
   } catch (err: any) {
-    console.error('[API] /api/analyze ERROR:', err);
+    console.error('[API] /api/analyze error', err);
     return NextResponse.json(
-      { error: 'Internal server error' },
+      { message: 'Internal server error' },
       { status: 500 },
     );
   }

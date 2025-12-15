@@ -32,11 +32,14 @@ export default function RiskSummary({ result }: Props) {
 
       <p className="text-3xl font-bold">
         {result.globalRiskScore}
-        <span className="text-base font-normal text-slate-400"> / 100</span>
+        <span className="text-base font-normal text-slate-400">
+          {' '}
+          / 100
+        </span>
       </p>
 
       <p className={levelColor}>{level}</p>
-      {/* 🟡 Предупреждение о частичном анализе */}
+
       {partial && (
         <p className="text-xs text-yellow-300">
           {t.meta.partialAnalysis}
@@ -46,6 +49,7 @@ export default function RiskSummary({ result }: Props) {
       <p className="text-xs text-slate-400">
         {t.riskSummary.address}: {result.rootAddress} ·{' '}
         {t.riskSummary.blockchain}: {result.blockchain} ·{' '}
+        {/* тут показываем ПЕРИОД, а не depth */}
         {t.riskSummary.depth}: {result.depth}
       </p>
       <p className="text-xs text-slate-500">

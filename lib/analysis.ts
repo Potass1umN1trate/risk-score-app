@@ -9,7 +9,6 @@ import type {
 import {
   fetchTransactions,
   type BlockchainTx,
-  type FetchTransactionsResult,
 } from './blockchainApi';
 import {
   findBadAddressesForAddresses,
@@ -17,13 +16,23 @@ import {
 } from './badAddresses';
 import { calculateRiskScore } from './riskScore';
 
+/**
+ * Главная функция анализа:
+ * - тянем транзакции с учётом глубины (depth)
+ * - строим граф
+ * - подтягиваем "плохие" адреса из БД и помечаем ноды
+ * - считаем итоговый risk score только по графу
+ */
 export async function performFullAnalysis(
   req: WalletAnalysisRequest,
 ): Promise<WalletAnalysisResult> {
+  // нормализуем глубину
+  const depth = Math.max(1, Math.min(req.depth ?? 1, 5));
+
   const { transactions, failedAddresses } = await fetchTransactions(
     req.address,
     req.blockchain,
-    req.depth,
+    depth,
   );
 
   const { nodes, links } = buildGraphFromTransactions(
@@ -31,12 +40,11 @@ export async function performFullAnalysis(
     req.address,
   );
 
-  // =========================
-  // 1. Тянем "плохие" адреса из базы
-  // =========================
-  const allAddresses = Array.from(new Set(nodes.map((n) => n.id)));
+  // 1) собираем все адреса из графа
+  const allAddresses = nodes.map((n) => n.id);
 
-  let badAddressMap: Map<string, BadAddressRecord> = new Map();
+  // 2) тянем по ним "плохие" записи из базы
+  let badAddressMap: Map<string, BadAddressRecord>;
   try {
     badAddressMap = await findBadAddressesForAddresses(
       req.blockchain,
@@ -44,38 +52,32 @@ export async function performFullAnalysis(
     );
   } catch (err) {
     console.error('Error checking bad addresses', err);
+    badAddressMap = new Map();
   }
 
-  // =========================
-  // 2. Помечаем ноды как подозрительные
-  // =========================
-  if (badAddressMap.size > 0) {
-    applyBadFlagsToNodes(nodes, badAddressMap);
+  // 3) помечаем ноды как подозрительные и выравниваем riskScore
+  for (const node of nodes) {
+    const bad = badAddressMap.get(node.id);
+
+    if (bad) {
+      node.isSuspicious = true;
+      // риск узла не ниже, чем из базы
+      node.riskScore = Math.max(node.riskScore ?? 0, bad.riskLevel ?? 0);
+    } else {
+      // чтобы на фронте всегда были численные значения
+      node.isSuspicious = node.isSuspicious ?? false;
+      node.riskScore = node.riskScore ?? 0;
+    }
   }
 
-  // =========================
-  // 3. Остальной анализ как был
-  // =========================
+  // 4) считаем статистику (для UI) и общий риск только по графу
   const stats = analyzeActivity(transactions);
-
-  // Базовый скор по твоей старой формуле
-  let globalRiskScore = calculateRiskScore({ nodes, links, stats });
-
-  // --- OVERRIDE: блоклист сильнее эвристик ---
-  // Берём максимальный riskScore по узлам (куда мы уже залили risk_level из БД)
-  const maxNodeRisk = nodes.reduce(
-    (max, n) => Math.max(max, n.riskScore ?? 0),
-    0,
-  );
-
-  if (maxNodeRisk > globalRiskScore) {
-    globalRiskScore = maxNodeRisk;
-  }
+  const globalRiskScore = calculateRiskScore({ nodes, links, rootAddress: req.address });
 
   return {
     rootAddress: req.address,
     blockchain: req.blockchain,
-    depth: req.depth,
+    depth,
     globalRiskScore,
     graph: { nodes, links },
     stats,
@@ -88,30 +90,10 @@ export async function performFullAnalysis(
   };
 }
 
-function applyBadFlagsToNodes(
-  nodes: GraphNode[],
-  badMap: Map<string, BadAddressRecord>,
-) {
-  for (const node of nodes) {
-    const bad = badMap.get(node.id);
-    if (!bad) continue;
-
-    node.isSuspicious = true;
-
-    // Минимальный вариант: риск узла не меньше risk_level из БД
-    node.riskScore = Math.max(node.riskScore ?? 0, bad.riskLevel);
-
-    // Доп. инфа (если захочешь подсвечивать её во фронте)
-    node.badTag = bad.tag ?? null;
-    node.badSource = bad.source ?? null;
-  }
-}
-
-
 /**
  * Строим граф: из списка транзакций получаем узлы и связи.
- * Поправлено: корневой адрес приводим к одному варианту строки,
- * чтобы он не дублировался (особенно в Ethereum, где разные кейсы).
+ * Корневой адрес приводим к одному варианту строки (по регистру),
+ * чтобы он не дублировался (особенно для Ethereum).
  */
 function buildGraphFromTransactions(
   txs: BlockchainTx[],
@@ -120,7 +102,6 @@ function buildGraphFromTransactions(
   const nodeMap = new Map<string, GraphNode>();
   const linkKeyToCount = new Map<string, number>();
 
-  // нормализованный вариант корневого адреса (для сравнения)
   const rootLower = rootAddress.toLowerCase();
 
   // корневой узел
@@ -131,17 +112,11 @@ function buildGraphFromTransactions(
     isSuspicious: false,
   });
 
-  for (const tx of txs) {
-    let { from, to } = tx;
+  for (const rawTx of txs) {
+    let { from, to } = rawTx;
 
-    // Если адрес из транзакции совпадает с корневым по регистронезависимому сравнению —
-    // принудительно используем строку rootAddress, чтобы был один узел.
-    if (from && from.toLowerCase() === rootLower) {
-      from = rootAddress;
-    }
-    if (to && to.toLowerCase() === rootLower) {
-      to = rootAddress;
-    }
+    if (from && from.toLowerCase() === rootLower) from = rootAddress;
+    if (to && to.toLowerCase() === rootLower) to = rootAddress;
 
     for (const addr of [from, to]) {
       if (!addr) continue;
@@ -172,7 +147,9 @@ function buildGraphFromTransactions(
 }
 
 /**
- * Анализ транзакционной активности (как раньше, только тип другой).
+ * Анализ транзакционной активности.
+ * Сейчас используется только для отображения на фронте,
+ * на risk score не влияет.
  */
 function analyzeActivity(txs: BlockchainTx[]): ActivityStats {
   const totalTx = txs.length;

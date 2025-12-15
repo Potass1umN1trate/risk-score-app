@@ -1,25 +1,53 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import type {
   SupportedBlockchain,
   WalletAnalysisRequest,
-  WalletAnalysisResult,
 } from '@/lib/types';
 import { useLanguage } from './LanguageProvider';
 
 interface Props {
-  onResult: (result: WalletAnalysisResult) => void;
+  onSubmit: (payload: WalletAnalysisRequest) => Promise<void> | void;
+  initialAddress?: string;
+  initialDepth?: number;
+  initialBlockchain?: SupportedBlockchain;
 }
 
-export default function WalletAnalysisForm({ onResult }: Props) {
+export default function WalletAnalysisForm({
+  onSubmit,
+  initialAddress,
+  initialDepth,
+  initialBlockchain,
+}: Props) {
   const { t } = useLanguage();
 
-  const [address, setAddress] = useState('');
-  const [blockchain, setBlockchain] = useState<SupportedBlockchain>('bitcoin');
-  const [depth, setDepth] = useState(2);
+  const [address, setAddress] = useState(initialAddress ?? '');
+  const [blockchain, setBlockchain] = useState<SupportedBlockchain>(
+    initialBlockchain ?? 'bitcoin',
+  );
+  const [depth, setDepth] = useState(initialDepth ?? 2);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // синхронизация с URL
+  useEffect(() => {
+    if (typeof initialAddress === 'string') {
+      setAddress(initialAddress);
+    }
+  }, [initialAddress]);
+
+  useEffect(() => {
+    if (initialBlockchain) {
+      setBlockchain(initialBlockchain);
+    }
+  }, [initialBlockchain]);
+
+  useEffect(() => {
+    if (typeof initialDepth === 'number' && Number.isFinite(initialDepth)) {
+      setDepth(initialDepth);
+    }
+  }, [initialDepth]);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -33,20 +61,7 @@ export default function WalletAnalysisForm({ onResult }: Props) {
 
     try {
       setLoading(true);
-
-      const res = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.message || 'Request failed');
-      }
-
-      const result: WalletAnalysisResult = await res.json();
-      onResult(result);
+      await onSubmit(payload); // API колл теперь снаружи
     } catch (err: any) {
       setError(err.message || 'Unknown error');
     } finally {

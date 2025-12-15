@@ -65,39 +65,37 @@ export async function fetchTransactions(
 ): Promise<FetchTransactionsResult> {
   const maxDepth = Math.max(1, Math.min(depth, MAX_DEPTH));
 
-  const fetcher = addressTxFetchers[blockchain];
-  if (!fetcher) {
-    throw new Error(`Unsupported blockchain: ${blockchain as string}`);
-  }
+  const failedAddresses: string[] = [];
+  const collected: BlockchainTx[] = [];
 
   const visited = new Set<string>();
   const queue: AddressNode[] = [{ addr: rootAddress, level: 0 }];
 
-  const collected: BlockchainTx[] = [];
-  const failedAddresses: string[] = [];
+  const fetcher = addressTxFetchers[blockchain];
+  if (!fetcher) {
+    throw new Error(`Unsupported blockchain: ${blockchain}`);
+  }
 
   while (queue.length > 0 && visited.size < MAX_ADDRESSES_PER_ANALYSIS) {
     const { addr, level } = queue.shift()!;
     if (visited.has(addr)) continue;
     visited.add(addr);
 
-    let txsForAddr: BlockchainTx[];
+    let addrTxs: BlockchainTx[] = [];
     try {
-      txsForAddr = await fetcher(addr);
-    } catch (error) {
-      // 💡 ВАЖНО: не падаем, а просто помечаем адрес как "упавший"
-      console.error('Error fetching txs for', addr, error);
+      addrTxs = await fetcher(addr);
+    } catch (e) {
+      console.error('Error fetching txs for', addr, e);
       failedAddresses.push(addr);
       continue;
     }
 
-    collected.push(...txsForAddr);
+    collected.push(...addrTxs);
 
-    // дальше по глубине не идём
+    // Дальше по "коленам" не углубляемся
     if (level >= maxDepth - 1) continue;
 
-    const neighbors = collectNeighbors(addr, txsForAddr);
-
+    const neighbors = collectNeighbors(addr, addrTxs);
     for (const neighbor of neighbors) {
       if (!neighbor) continue;
       if (visited.has(neighbor)) continue;
@@ -117,7 +115,10 @@ export async function fetchTransactions(
 /**
  * Собираем соседей: все уникальные from/to, отличные от текущего адреса.
  */
-function collectNeighbors(currentAddr: string, txs: BlockchainTx[]): Set<string> {
+function collectNeighbors(
+  currentAddr: string,
+  txs: BlockchainTx[],
+): Set<string> {
   const neighbors = new Set<string>();
 
   for (const tx of txs) {
@@ -286,7 +287,7 @@ type EthplorerTx = {
   hash?: string;
   from?: string;
   to?: string;
-  value?: number;    // значение уже в ETH
+  value?: number; // значение уже в ETH
 };
 
 async function fetchEthereumAddressTransactions(
@@ -322,7 +323,7 @@ async function fetchEthereumAddressTransactions(
       txid: tx.hash,
       from,
       to,
-      amount,          // уже в ETH
+      amount, // уже в ETH
       timestamp: tx.timestamp,
     });
   }

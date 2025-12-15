@@ -5,7 +5,7 @@ export type SupportedBlockchain = 'bitcoin' | 'ethereum';
 export interface WalletAnalysisRequest {
   address: string;
   blockchain: SupportedBlockchain;
-  depth: number;
+  depth: number; // чтобы не ломать старые места, но логически — больше не используется
 }
 
 export interface GraphNode {
@@ -13,8 +13,6 @@ export interface GraphNode {
   label: string;
   riskScore: number;
   isSuspicious: boolean;
-
-  // Новые, опциональные поля — UI сможет их показывать, если захочешь
   badTag?: string | null;
   badSource?: string | null;
 }
@@ -34,6 +32,7 @@ export interface ActivityStats {
 export interface WalletAnalysisMeta {
   partial: boolean;
   failedAddresses: string[];
+  badAddressesCount?: number;
 }
 
 export interface WalletAnalysisResult {
@@ -47,18 +46,9 @@ export interface WalletAnalysisResult {
   };
   stats: ActivityStats;
   createdAt: string;
-  meta: {
-    partial: boolean;
-    failedAddresses: string[];
-
-    // Новое поле: что именно совпало с локальным blacklist
-    badAddressesCount?: number; 
-    badAddresses?: {
-      address: string;
-      tag: string | null;
-      riskLevel: number;
-      source: string | null;
-      evidenceUrl: string | null;
-    }[];
+  meta?: {
+    partial?: boolean;
+    failedAddresses?: string[];
+    badAddressesCount?: number;
   };
 }

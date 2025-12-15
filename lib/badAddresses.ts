@@ -53,3 +53,41 @@ export async function findBadAddressesForAddresses(
 
   return map;
 }
+
+// >>> НОВОЕ: обновление risk_level для уже существующей записи
+export async function updateBadAddressRisk(
+  blockchain: SupportedBlockchain,
+  address: string,
+  newRiskLevel: number,
+): Promise<void> {
+  const risk = Math.max(0, Math.min(100, Math.round(newRiskLevel)));
+
+  await pg.query(
+    `
+      UPDATE bad_addresses
+      SET risk_level = $3,
+          last_seen_at = COALESCE(last_seen_at, NOW()),
+          updated_at = NOW()
+      WHERE blockchain = $1 AND address = $2
+    `,
+    [blockchain, address, risk],
+  );
+}
+
+export async function updateRiskIfHigher(
+  blockchain: SupportedBlockchain,
+  address: string,
+  newRiskLevel: number,
+): Promise<void> {
+  const risk = Math.max(0, Math.min(100, Math.round(newRiskLevel)));
+
+  await pg.query(
+    `
+      UPDATE bad_addresses
+      SET risk_level = GREATEST(risk_level, $3::smallint),
+          updated_at = NOW()
+      WHERE blockchain = $1 AND address = $2
+    `,
+    [blockchain, address, risk],
+  );
+}

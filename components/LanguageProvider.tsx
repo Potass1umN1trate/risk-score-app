@@ -78,13 +78,14 @@ const translations: Record<Locale, TranslationSchema> = {
       title:
         'Система анализа транзакций в блокчейне с присвоением risk score',
       description:
-        'Введите адрес криптовалютного кошелька, выберите блокчейн и глубину анализа. ' +
+        'Введите адрес криптовалютного кошелька, выберите блокчейн и период анализа. ' +
         'Система соберёт транзакции, построит граф связей и присвоит итоговый уровень риска.',
     },
     analysisForm: {
       addressLabel: 'Адрес кошелька',
       addressPlaceholder: 'Например, 0x1234... или bc1q...',
       blockchainLabel: 'Блокчейн',
+      // 👇 только текст, ключ оставляем тем же (depthLabel)
       depthLabel: 'Глубина анализа (кол-во колен)',
       submit: 'Запустить анализ',
       submitLoading: 'Анализируем…',
@@ -96,6 +97,7 @@ const translations: Record<Locale, TranslationSchema> = {
       levelHigh: 'Высокий риск',
       address: 'Адрес',
       blockchain: 'Блокчейн',
+      // 👇 это тоже про период
       depth: 'Глубина анализа',
       performedAt: 'Анализ выполнен',
     },
@@ -108,7 +110,7 @@ const translations: Record<Locale, TranslationSchema> = {
     graph: {
       title: 'Граф связей',
       legend:
-        'Зелёная вершина — анализируемый кошелёк, красные — подозрительные, серые — остальные.',
+        'Клик по вершине запускает анализ этого адреса. Цвет узла показывает уровень риска (от зелёного к красному), число в скобках — risk score.',
     },
     meta: {
       partialAnalysis:
@@ -132,14 +134,14 @@ const translations: Record<Locale, TranslationSchema> = {
       title:
         'Blockchain transaction analysis system with risk score',
       description:
-        'Enter a crypto wallet address, select the blockchain and analysis depth. ' +
-        'The system will collect transactions, build a graph of relations and compute the final risk level.',
+        'Enter a crypto wallet address, select the blockchain and analysis period. ' +
+        'The system will collect transactions, build a relation graph and compute the final risk level.',
     },
     analysisForm: {
       addressLabel: 'Wallet address',
       addressPlaceholder: 'For example, 0x1234... or bc1q...',
       blockchainLabel: 'Blockchain',
-      depthLabel: 'Analysis depth (hops)',
+      depthLabel: 'Analysis depth (hops)', // 👈
       submit: 'Run analysis',
       submitLoading: 'Analyzing…',
     },
@@ -150,7 +152,7 @@ const translations: Record<Locale, TranslationSchema> = {
       levelHigh: 'High risk',
       address: 'Address',
       blockchain: 'Blockchain',
-      depth: 'Analysis depth',
+      depth: 'Analysis depth', // 👈
       performedAt: 'Analysis time',
     },
     activityStats: {
@@ -162,14 +164,16 @@ const translations: Record<Locale, TranslationSchema> = {
     graph: {
       title: 'Relations graph',
       legend:
-        'Green node — analyzed wallet, red — suspicious, grey — other nodes.',
+        'Click a node to analyze that address. Node color encodes risk (green → red), number in brackets is node risk score.',
     },
+
     meta: {
       partialAnalysis:
         'Analysis was partially completed: failed to retrieve data for some addresses.',
     },
   },
 };
+
 
 type Dictionary = (typeof translations)['ru'];
 
