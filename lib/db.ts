@@ -246,7 +246,16 @@ export async function autoFlagBadAddress(params: {
     )
     VALUES ($1, $2, $3, $4, $5, $6, NULL, NOW(), NOW())
     ON CONFLICT (blockchain, address) DO UPDATE
-      SET last_seen_at = EXCLUDED.last_seen_at
+      SET
+        -- не даём риску уменьшаться
+        risk_level = GREATEST(bad_addresses.risk_level, EXCLUDED.risk_level),
+
+        -- если там уже есть ручные значения — не затираем их
+        tag = COALESCE(bad_addresses.tag, EXCLUDED.tag),
+        source = COALESCE(bad_addresses.source, EXCLUDED.source),
+        evidence_url = COALESCE(bad_addresses.evidence_url, EXCLUDED.evidence_url),
+
+        last_seen_at = EXCLUDED.last_seen_at
     `,
     [
       params.blockchain,
@@ -258,6 +267,7 @@ export async function autoFlagBadAddress(params: {
     ],
   );
 }
+
 
 export async function getDbClient() {
   return pg.connect();
