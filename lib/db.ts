@@ -1,8 +1,7 @@
 // lib/db.ts
 import crypto from 'crypto';
 import { Pool } from 'pg';
-import type { UserRole, AuthSession } from './types';
-import type { SupportedBlockchain, WalletAnalysisResult } from './types';
+import type { UserRole, AuthSession, SupportedBlockchain, WalletAnalysisResult } from './types';
 
 const connectionConfig = process.env.DATABASE_URL
   ? { connectionString: process.env.DATABASE_URL }
@@ -40,14 +39,22 @@ export interface HistoryRow {
   createdAt: Date;
 }
 
+/**
+ * ВАЖНО:
+ * В БД risk_score сейчас INTEGER. Значит любые дроби обязаны быть приведены к int.
+ * Иначе будет "invalid input syntax for type integer: 8.65".
+ */
+function scoreToInt(x: unknown): number {
+  const n = typeof x === 'number' ? x : Number(x);
+  if (!Number.isFinite(n)) return 0;
+  const clamped = Math.max(0, Math.min(100, n));
+  return Math.round(clamped);
+}
+
 export async function saveAnalysis(
-  userId: string,
+  userId: string | null,
   analysis: WalletAnalysisResult,
 ): Promise<void> {
-  if (!userId) {
-    throw new Error('saveAnalysis: userId is required');
-  }
-
   const client = await pg.connect();
   try {
     await client.query(
@@ -67,7 +74,7 @@ export async function saveAnalysis(
         analysis.blockchain,
         analysis.rootAddress,
         analysis.depth,
-        analysis.globalRiskScore,
+        scoreToInt(analysis.globalRiskScore), // ✅ вот фикс
       ],
     );
   } finally {
@@ -76,7 +83,7 @@ export async function saveAnalysis(
 }
 
 interface GetUserHistoryParams {
-  userId: string; // ⬅️ ОБЯЗАТЕЛЬНО
+  userId: string | null;
   limit?: number;
 }
 
@@ -84,14 +91,10 @@ export async function getUserHistory(
   params: GetUserHistoryParams,
 ): Promise<HistoryRow[]> {
   const { userId, limit = 20 } = params;
-
-  if (!userId) {
-    throw new Error('getUserHistory: userId is required');
-  }
-
   const client = await pg.connect();
+
   try {
-    const q = `
+    const withUser = `
       SELECT
         id,
         user_id,
@@ -106,16 +109,31 @@ export async function getUserHistory(
       LIMIT $2
     `;
 
-    const { rows } = await client.query(q, [userId, limit]);
+    const withoutUser = `
+      SELECT
+        id,
+        user_id,
+        blockchain,
+        root_address,
+        depth,
+        global_risk_score,
+        created_at
+      FROM analysis_history
+      ORDER BY created_at DESC
+      LIMIT $1
+    `;
 
-    // snake_case → camelCase
+    const { rows } = userId
+      ? await client.query(withUser, [userId, limit])
+      : await client.query(withoutUser, [limit]);
+
     return rows.map((row) => ({
       id: row.id,
       userId: row.user_id ?? null,
       blockchain: row.blockchain,
       rootAddress: row.root_address,
       depth: row.depth,
-      globalRiskScore: Number(row.global_risk_score),
+      globalRiskScore: Number(row.global_risk_score), // int -> number
       createdAt: row.created_at,
     }));
   } finally {
@@ -224,12 +242,15 @@ export async function deleteSession(sessionId: string): Promise<void> {
   await pg.query(`DELETE FROM sessions WHERE id = $1`, [sessionId]);
 }
 
+/**
+ * Автофлаг: bad_addresses.risk_level тоже обычно INTEGER -> округляем.
+ */
 export async function autoFlagBadAddress(params: {
   blockchain: SupportedBlockchain;
   address: string;
   riskLevel: number;
 }): Promise<void> {
-  const riskLevel = Math.max(0, Math.min(100, Math.round(params.riskLevel)));
+  const riskLevel = scoreToInt(params.riskLevel);
 
   await pg.query(
     `
@@ -246,16 +267,9 @@ export async function autoFlagBadAddress(params: {
     )
     VALUES ($1, $2, $3, $4, $5, $6, NULL, NOW(), NOW())
     ON CONFLICT (blockchain, address) DO UPDATE
-      SET
-        -- не даём риску уменьшаться
-        risk_level = GREATEST(bad_addresses.risk_level, EXCLUDED.risk_level),
-
-        -- если там уже есть ручные значения — не затираем их
-        tag = COALESCE(bad_addresses.tag, EXCLUDED.tag),
-        source = COALESCE(bad_addresses.source, EXCLUDED.source),
-        evidence_url = COALESCE(bad_addresses.evidence_url, EXCLUDED.evidence_url),
-
-        last_seen_at = EXCLUDED.last_seen_at
+      SET risk_level = GREATEST(bad_addresses.risk_level, EXCLUDED.risk_level),
+          last_seen_at = EXCLUDED.last_seen_at,
+          source = EXCLUDED.source
     `,
     [
       params.blockchain,
@@ -268,17 +282,19 @@ export async function autoFlagBadAddress(params: {
   );
 }
 
-
-export async function getDbClient() {
-  return pg.connect();
-}
-
+/**
+ * Ты это используешь из analysis.ts: upsertScannedAddressRisk(...)
+ * Делаем нормальный upsert и опять же пишем int.
+ *
+ * ВАЖНО: если у тебя нет UNIQUE(blockchain, address) на bad_addresses — добавь,
+ * иначе ON CONFLICT не сработает.
+ */
 export async function upsertScannedAddressRisk(params: {
   blockchain: SupportedBlockchain;
   address: string;
   riskLevel: number;
 }): Promise<void> {
-  const riskLevel = Math.max(0, Math.min(100, Math.round(params.riskLevel)));
+  const riskLevel = scoreToInt(params.riskLevel);
 
   await pg.query(
     `
@@ -293,13 +309,21 @@ export async function upsertScannedAddressRisk(params: {
       first_seen_at,
       last_seen_at
     )
-    VALUES ($1, $2, NULL, $3, 'auto: scan', NULL, NULL, NOW(), NOW())
+    VALUES ($1, $2, NULL, $3, $4, NULL, NULL, NOW(), NOW())
     ON CONFLICT (blockchain, address) DO UPDATE
-      SET
-        -- повышаем риск только вверх (динамика, но без затирания manual)
-        risk_level = GREATEST(bad_addresses.risk_level, EXCLUDED.risk_level),
-        last_seen_at = NOW()
+      SET risk_level = GREATEST(bad_addresses.risk_level, EXCLUDED.risk_level),
+          last_seen_at = EXCLUDED.last_seen_at,
+          source = EXCLUDED.source
     `,
-    [params.blockchain, params.address, riskLevel],
+    [
+      params.blockchain,
+      params.address,
+      riskLevel,
+      'auto: scanned-root',
+    ],
   );
+}
+
+export async function getDbClient() {
+  return pg.connect();
 }

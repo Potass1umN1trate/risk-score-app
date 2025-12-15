@@ -14,21 +14,35 @@ import {
 import { propagateRiskByHalving } from './propagateRiskByHalving';
 import { upsertScannedAddressRisk } from './db';
 
+const DB_WRITE_THRESHOLD = 50;
+
+/**
+ * Tx-risk add (твоя формула):
+ * - small transfers: (share_<1usd * 100) * 0.7
+ * - activity: (max_tx_per_day / 10) * 0.5
+ */
+function calcTxRiskAdd(stats: ActivityStats): number {
+  const smallPart = (stats.smallTxShare * 100) * 0.7;
+  const activityPart = (stats.peakDayTx / 10) * 0.5;
+  return clamp100(smallPart + activityPart);
+}
+
 /**
  * Главная функция анализа:
- * - тянем транзакции с учётом глубины (depth)
  * - строим граф
- * - подтягиваем "плохие" адреса из БД и помечаем ноды (baseRisk)
- * - распространяем риск по графу (halving per hop)
- * - итоговый риск = риск корневого узла после propagation
- * - сохраняем root risk в БД (только root)
+ * - подтягиваем bad_addresses и выставляем baseRisk
+ * - распространяем риск (halving)
+ * - rootRisk = riskScore(root) после propagation
+ * - stats считаем ТОЛЬКО по root-транзакциям
+ * - globalRiskScore = rootRisk + txRiskAdd
+ * - сохраняем globalRiskScore в БД (только root) ТОЛЬКО если > 50
  */
 export async function performFullAnalysis(
   req: WalletAnalysisRequest,
 ): Promise<WalletAnalysisResult> {
   const depth = Math.max(1, Math.min(req.depth ?? 1, 5));
 
-  // ВАЖНО: для Ethereum нормализуем адреса в lower-case, чтобы совпадали с БД
+  // нормализация адресов для сопоставления с БД (Ethereum)
   const normalize = (a: string) =>
     req.blockchain === 'ethereum' ? a.toLowerCase() : a;
 
@@ -52,36 +66,32 @@ export async function performFullAnalysis(
   // 2) bad addresses из БД
   let badAddressMap: Map<string, BadAddressRecord>;
   try {
-    badAddressMap = await findBadAddressesForAddresses(
-      req.blockchain,
-      allAddresses,
-    );
+    badAddressMap = await findBadAddressesForAddresses(req.blockchain, allAddresses);
   } catch (err) {
     console.error('Error checking bad addresses', err);
     badAddressMap = new Map();
   }
 
-  // 3) baseRisk: выставляем исходный риск узлам
+  // 3) baseRisk: выставляем исходный риск узлам из БД
   for (const node of nodes) {
     const bad = badAddressMap.get(node.id);
 
     if (bad) {
       node.isSuspicious = true;
       node.riskScore = Math.max(node.riskScore ?? 0, Number(bad.riskLevel ?? 0));
-      // Если твой GraphNode/WalletAnalysisResult поддерживает эти поля — можно включить:
-      // (node as any).badTag = bad.tag ?? null;
-      // (node as any).badSource = bad.source ?? null;
     } else {
       node.isSuspicious = node.isSuspicious ?? false;
-      node.riskScore = Number.isFinite(node.riskScore as any) ? (node.riskScore as number) : 0;
+      node.riskScore = Number.isFinite(node.riskScore as any)
+        ? (node.riskScore as number)
+        : 0;
     }
+
+    node.riskScore = clamp100(node.riskScore ?? 0);
   }
 
   /**
    * 4) Propagation:
-   * ВНИМАНИЕ: чтобы не ломать типы, делаем отдельное “представление” узлов:
-   *  - baseRisk = node.riskScore до propagation
-   *  - risk = baseRisk + вклад соседей
+   * делаем отдельные узлы с baseRisk/risk, не ломая GraphNode тип.
    */
   type PropNode = GraphNode & { baseRisk: number; risk: number };
 
@@ -91,7 +101,6 @@ export async function performFullAnalysis(
     risk: clamp100(n.riskScore ?? 0),
   }));
 
-  // propagateRiskByHalving должен работать по id/source/target
   propagateRiskByHalving({
     nodes: propNodes,
     links: links.map((l) => ({
@@ -101,35 +110,36 @@ export async function performFullAnalysis(
     maxDepth: depth,
   });
 
-  // копируем результат обратно в nodes (чтобы UI видел)
+  // копируем результат propagation обратно в nodes
   const riskById = new Map<string, number>();
   for (const n of propNodes) riskById.set(n.id, clamp100(n.risk));
 
   for (const node of nodes) {
-    const r = riskById.get(node.id);
-    node.riskScore = clamp100(r ?? 0);
+    node.riskScore = clamp100(riskById.get(node.id) ?? 0);
   }
 
-  // 5) stats для UI
-  const stats = analyzeActivity(transactions);
+  // 5) stats для UI: считаем ТОЛЬКО root-транзакции
+  const stats = analyzeActivityForRoot(transactions, rootAddress, req.blockchain);
 
-  // 6) Итоговый риск = риск root после propagation
+  // 6) rootRisk = риск root после propagation
   const rootNode = nodes.find((n) => n.id === rootAddress);
-  const globalRiskScore = clamp100(rootNode?.riskScore ?? 0);
+  const rootRisk = clamp100(rootNode?.riskScore ?? 0);
 
-  // 7) "Динамика": обновляем/пишем в БД ТОЛЬКО root адрес (не всех соседей)
-  //    Чтобы не превращать bad_addresses в помойку, пишем только если риск > 0
-  //    (если хочешь всегда — убери условие)
+  // 7) txRiskAdd и финальный риск
+  const txRiskAdd = calcTxRiskAdd(stats);
+  const globalRiskScore = clamp100(rootRisk + txRiskAdd);
+
+  // 8) динамика: пишем в БД только root, только если > 50
+  // IMPORTANT: riskLevel приводим к int, потому что в БД мог быть integer (ты уже ловил 8.65 -> int error)
   try {
-    if (globalRiskScore > 0) {
+    if (globalRiskScore > DB_WRITE_THRESHOLD) {
       await upsertScannedAddressRisk({
         blockchain: req.blockchain,
         address: rootAddress,
-        riskLevel: globalRiskScore,
+        riskLevel: toDbIntRisk(globalRiskScore),
       });
     }
   } catch (e) {
-    // не роняем анализ из-за записи в БД
     console.error('Failed to upsert scanned address risk', e);
   }
 
@@ -145,7 +155,7 @@ export async function performFullAnalysis(
       partial: failedAddresses.length > 0,
       failedAddresses,
       badAddressesCount: badAddressMap.size,
-    },
+    } as any,
   };
 }
 
@@ -201,26 +211,67 @@ function buildGraphFromTransactions(
   return { nodes: Array.from(nodeMap.values()), links };
 }
 
-function analyzeActivity(txs: BlockchainTx[]): ActivityStats {
-  const totalTx = txs.length;
+/**
+ * ActivityStats ТОЛЬКО для root:
+ * - totalTx: сколько транзакций, где root участвовал (from/to)
+ * - smallTxShare: доля транзакций < $1 (только если задан курс в env)
+ * - peakDayTx: максимум root-транзакций за один день (UTC)
+ *
+ * ВАЖНО: tx.amount у тебя в нативных единицах (BTC/ETH).
+ * Для $1 нужен курс:
+ *   PRICE_USD_BTC, PRICE_USD_ETH
+ * Если курса нет => smallTxShare = 0 (честно).
+ */
+function analyzeActivityForRoot(
+  txs: BlockchainTx[],
+  rootAddress: string,
+  blockchain: string,
+): ActivityStats {
+  const rootLower = rootAddress.toLowerCase();
+
+  const rootTxs = txs.filter((tx) => {
+    const f = (tx.from ?? '').toLowerCase();
+    const t = (tx.to ?? '').toLowerCase();
+    return f === rootLower || t === rootLower;
+  });
+
+  const totalTx = rootTxs.length;
   if (totalTx === 0) return { totalTx: 0, smallTxShare: 0, peakDayTx: 0 };
 
-  const amounts = txs.map((tx) => Math.abs(tx.amount));
-  const sorted = [...amounts].sort((a, b) => a - b);
-  const median = sorted[Math.floor(sorted.length / 2)] || 0;
-  const threshold = median || 0.0001;
+  const priceUsd = getPriceUsd(blockchain);
 
-  const smallTxCount = txs.filter((tx) => Math.abs(tx.amount) <= threshold).length;
+  let smallTxCount = 0;
+  if (priceUsd > 0) {
+    for (const tx of rootTxs) {
+      const usd = Math.abs(tx.amount) * priceUsd;
+      if (usd < 1) smallTxCount += 1;
+    }
+  } else {
+    smallTxCount = 0; // курса нет — не считаем, чтобы не врать
+  }
+
   const smallTxShare = smallTxCount / totalTx;
 
   const perDay = new Map<string, number>();
-  for (const tx of txs) {
+  for (const tx of rootTxs) {
     const day = new Date(tx.timestamp * 1000).toISOString().slice(0, 10);
     perDay.set(day, (perDay.get(day) || 0) + 1);
   }
   const peakDayTx = Math.max(...perDay.values());
 
   return { totalTx, smallTxShare, peakDayTx };
+}
+
+function getPriceUsd(blockchain: string): number {
+  const b = (blockchain || '').toLowerCase();
+  if (b === 'bitcoin' || b === 'btc') return Number(process.env.PRICE_USD_BTC ?? 0) || 0;
+  if (b === 'ethereum' || b === 'eth') return Number(process.env.PRICE_USD_ETH ?? 0) || 0;
+  return 0;
+}
+
+function toDbIntRisk(x: number): number {
+  // чтобы не словить снова "invalid input syntax for type integer: '8.65'"
+  return Math.round(clamp100(x));
 }
 
 function shorten(addr: string) {
