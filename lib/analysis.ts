@@ -14,28 +14,41 @@ import {
 import { propagateRiskByHalving } from './propagateRiskByHalving';
 import { upsertScannedAddressRisk } from './db';
 
-const DB_WRITE_THRESHOLD = 50;
-
 /**
- * Tx-risk add (твоя формула):
+ * Tx-risk parts (твоя логика):
  * - small transfers: (share_<1usd * 100) * 0.7
  * - activity: (max_tx_per_day / 10) * 0.5
  */
-function calcTxRiskAdd(stats: ActivityStats): number {
-  const smallPart = (stats.smallTxShare * 100) * 0.7;
-  const activityPart = (stats.peakDayTx / 10) * 0.5;
-  return clamp100(smallPart + activityPart);
+function calcSmallTxRisk(stats: ActivityStats): number {
+  return clamp100((stats.smallTxShare * 100) * 0.7);
+}
+
+function calcActivityRisk(stats: ActivityStats): number {
+  return clamp100((stats.peakDayTx / 10) * 0.5);
+}
+
+/**
+ * Итоговый риск теперь НЕ сумма, а максимум из 3 сигналов:
+ * - graph/root risk (после propagation)
+ * - smallTxRisk
+ * - activityRisk
+ */
+function calcGlobalRisk(params: {
+  graphRisk: number;
+  smallTxRisk: number;
+  activityRisk: number;
+}): number {
+  return clamp100(Math.max(params.graphRisk, params.smallTxRisk, params.activityRisk));
 }
 
 /**
  * Главная функция анализа:
  * - строим граф
  * - подтягиваем bad_addresses и выставляем baseRisk
- * - распространяем риск (halving)
- * - rootRisk = riskScore(root) после propagation
- * - stats считаем ТОЛЬКО по root-транзакциям
- * - globalRiskScore = rootRisk + txRiskAdd
- * - сохраняем globalRiskScore в БД (только root) ТОЛЬКО если > 50
+ * - распространяем риск (halving, mean)
+ * - stats считаем по root-транзакциям
+ * - globalRiskScore = MAX(graphRisk, smallTxRisk, activityRisk)
+ * - сохраняем globalRiskScore в БД (только root), но только если > 50
  */
 export async function performFullAnalysis(
   req: WalletAnalysisRequest,
@@ -85,7 +98,6 @@ export async function performFullAnalysis(
         ? (node.riskScore as number)
         : 0;
     }
-
     node.riskScore = clamp100(node.riskScore ?? 0);
   }
 
@@ -121,22 +133,26 @@ export async function performFullAnalysis(
   // 5) stats для UI: считаем ТОЛЬКО root-транзакции
   const stats = analyzeActivityForRoot(transactions, rootAddress, req.blockchain);
 
-  // 6) rootRisk = риск root после propagation
+  // 6) graphRisk = риск root после propagation
   const rootNode = nodes.find((n) => n.id === rootAddress);
-  const rootRisk = clamp100(rootNode?.riskScore ?? 0);
+  const graphRisk = clamp100(rootNode?.riskScore ?? 0);
 
-  // 7) txRiskAdd и финальный риск
-  const txRiskAdd = calcTxRiskAdd(stats);
-  const globalRiskScore = clamp100(rootRisk + txRiskAdd);
+  // 7) tx-risk parts и финальный риск = MAX(...)
+  const smallTxRisk = calcSmallTxRisk(stats);
+  const activityRisk = calcActivityRisk(stats);
 
-  // 8) динамика: пишем в БД только root, только если > 50
-  // IMPORTANT: riskLevel приводим к int, потому что в БД мог быть integer (ты уже ловил 8.65 -> int error)
+  // IMPORTANT: округляем до int, потому что analysis_history.global_risk_score у тебя integer
+  const globalRiskScore = Math.round(
+    calcGlobalRisk({ graphRisk, smallTxRisk, activityRisk }),
+  );
+
+  // 8) динамика: пишем в БД только root и только если > 50
   try {
-    if (globalRiskScore > DB_WRITE_THRESHOLD) {
+    if (globalRiskScore > 50) {
       await upsertScannedAddressRisk({
         blockchain: req.blockchain,
         address: rootAddress,
-        riskLevel: toDbIntRisk(globalRiskScore),
+        riskLevel: globalRiskScore,
       });
     }
   } catch (e) {
@@ -155,6 +171,10 @@ export async function performFullAnalysis(
       partial: failedAddresses.length > 0,
       failedAddresses,
       badAddressesCount: badAddressMap.size,
+      // если захочешь дебажить формулу на фронте — добавь эти поля в тип meta и раскомментируй:
+      // graphRisk,
+      // smallTxRisk,
+      // activityRisk,
     } as any,
   };
 }
@@ -214,7 +234,7 @@ function buildGraphFromTransactions(
 /**
  * ActivityStats ТОЛЬКО для root:
  * - totalTx: сколько транзакций, где root участвовал (from/to)
- * - smallTxShare: доля транзакций < $1 (только если задан курс в env)
+ * - smallTxShare: доля транзакций < $1 (если есть курс в env)
  * - peakDayTx: максимум root-транзакций за один день (UTC)
  *
  * ВАЖНО: tx.amount у тебя в нативных единицах (BTC/ETH).
@@ -247,7 +267,7 @@ function analyzeActivityForRoot(
       if (usd < 1) smallTxCount += 1;
     }
   } else {
-    smallTxCount = 0; // курса нет — не считаем, чтобы не врать
+    smallTxCount = 0;
   }
 
   const smallTxShare = smallTxCount / totalTx;
@@ -267,11 +287,6 @@ function getPriceUsd(blockchain: string): number {
   if (b === 'bitcoin' || b === 'btc') return Number(process.env.PRICE_USD_BTC ?? 0) || 0;
   if (b === 'ethereum' || b === 'eth') return Number(process.env.PRICE_USD_ETH ?? 0) || 0;
   return 0;
-}
-
-function toDbIntRisk(x: number): number {
-  // чтобы не словить снова "invalid input syntax for type integer: '8.65'"
-  return Math.round(clamp100(x));
 }
 
 function shorten(addr: string) {

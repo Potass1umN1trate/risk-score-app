@@ -5,7 +5,7 @@ import { saveAnalysis, autoFlagBadAddress } from '@/lib/db';
 import { getSessionUser } from '@/lib/auth-session';
 import type { WalletAnalysisRequest } from '@/lib/types';
 
-const AUTO_BAD_THRESHOLD = 30;
+const AUTO_BAD_THRESHOLD = 50;
 
 export async function POST(req: Request) {
   try {

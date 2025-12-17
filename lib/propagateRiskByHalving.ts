@@ -58,7 +58,7 @@ export function propagateRiskByHalving(params: {
         const src = nodeById.get(sourceId);
         if (!src) continue;
 
-        const contrib = clamp100(src.risk) / 2; // halving per hop
+        const contrib = clamp100(src.risk) * 0.7; // halving per hop
         if (!Number.isFinite(contrib) || contrib <= 0) continue;
 
         sum += contrib;
