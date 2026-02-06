@@ -20,7 +20,7 @@ function AnalysisPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
 
-  // searchParams по типам может быть null – аккуратно достаём
+  // searchParams can be null - safely extract values
   const urlAddress = searchParams?.get('addr') ?? '';
   const urlDepthStr = searchParams?.get('depth') ?? null;
   const urlBlockchainParam = (searchParams?.get('blockchain') as
@@ -38,7 +38,7 @@ function AnalysisPageInner() {
       ? urlBlockchainParam
       : 'bitcoin';
 
-  // автозапуск анализа при наличии addr в URL
+  // Auto-run analysis if address is present in URL
   useEffect(() => {
     if (!urlAddress) return;
 
@@ -69,7 +69,7 @@ function AnalysisPageInner() {
     })();
   }, [urlAddress, depth, blockchain]);
 
-  // сабмит формы
+  // Handle form submission
   async function handleSubmit(payload: WalletAnalysisRequest) {
     const res = await fetch('/api/analyze', {
       method: 'POST',

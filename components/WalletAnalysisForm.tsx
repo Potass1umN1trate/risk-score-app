@@ -61,7 +61,7 @@ export default function WalletAnalysisForm({
 
     try {
       setLoading(true);
-      await onSubmit(payload); // API колл теперь снаружи
+      await onSubmit(payload); // API call handled by parent component
     } catch (err: any) {
       setError(err.message || 'Unknown error');
     } finally {

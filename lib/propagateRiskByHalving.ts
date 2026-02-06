@@ -4,19 +4,20 @@ type Link = { source: string; target: string };
 
 type NodeLike = {
   id: string;
-  baseRisk: number; // исходный риск (из БД/флагов)
-  risk: number;     // текущий риск (будем обновлять)
+  baseRisk: number; // initial risk from database/flags
+  risk: number;     // current risk (updated during propagation)
 };
 
 /**
- * Propagation by halving per hop, но вклад соседей берём СРЕДНИЙ, а не сумму.
+ * Risk propagation using halving algorithm with mean averaging.
+ * Uses average of neighbors' contributions instead of sum to prevent
+ * artificially high risk when many neighbors exist.
  *
- * На каждом шаге:
+ * Algorithm per step:
  *   contrib(target) += risk(source) / 2
  *   risk_next(target) = baseRisk(target) + avg(contribs(target))
- *
- * Это убирает "всегда 100 при большом количестве соседей".
  */
+
 export function propagateRiskByHalving(params: {
   nodes: NodeLike[];
   links: Link[];
@@ -27,13 +28,13 @@ export function propagateRiskByHalving(params: {
 
   const nodeById = new Map<string, NodeLike>();
   for (const n of nodes) {
-    // нормализация чисел (на случай NaN)
+    // Normalize numbers to prevent NaN
     n.baseRisk = clamp100(n.baseRisk);
     n.risk = clamp100(n.risk);
     nodeById.set(n.id, n);
   }
 
-  // Собираем входящие ребра для target, чтобы быстро считать вклады
+  // Collect incoming edges for each target for fast contribution calculation
   const incoming = new Map<string, string[]>();
   for (const l of links) {
     const s = String(l.source);
@@ -44,9 +45,9 @@ export function propagateRiskByHalving(params: {
     incoming.get(t)!.push(s);
   }
 
-  // Итеративно распространяем риск по "хопам"
+  // Iteratively propagate risk over depth hops
   for (let step = 0; step < maxDepth; step++) {
-    // 1) Считаем вклады в каждый target
+    // 1) Calculate contributions to each target
     const sumByTarget = new Map<string, number>();
     const cntByTarget = new Map<string, number>();
 
@@ -71,7 +72,7 @@ export function propagateRiskByHalving(params: {
       }
     }
 
-    // 2) Обновляем risk = baseRisk + AVG(contribs)
+    // 2) Update risk = baseRisk + AVG(contributions)
     const nextRisk = new Map<string, number>();
 
     for (const n of nodes) {
@@ -84,7 +85,7 @@ export function propagateRiskByHalving(params: {
       nextRisk.set(n.id, updated);
     }
 
-    // 3) Применяем
+    // 3) Apply updates for next iteration
     for (const n of nodes) {
       n.risk = clamp100(nextRisk.get(n.id) ?? n.baseRisk);
     }

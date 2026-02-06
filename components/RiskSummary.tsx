@@ -49,7 +49,7 @@ export default function RiskSummary({ result }: Props) {
       <p className="text-xs text-slate-400">
         {t.riskSummary.address}: {result.rootAddress} ·{' '}
         {t.riskSummary.blockchain}: {result.blockchain} ·{' '}
-        {/* тут показываем ПЕРИОД, а не depth */}
+        {/* Display analysis depth level */}
         {t.riskSummary.depth}: {result.depth}
       </p>
       <p className="text-xs text-slate-500">

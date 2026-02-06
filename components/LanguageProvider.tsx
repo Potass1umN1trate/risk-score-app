@@ -107,9 +107,9 @@ const translations: Record<Locale, TranslationSchema> = {
     analysisForm: {
       addressLabel: 'Адрес кошелька',
       addressPlaceholder: 'Например, 0x1234... или bc1q...',
-      blockchainLabel: 'Блокчейн',
-      // 👇 только текст, ключ оставляем тем же (depthLabel)
-      depthLabel: 'Глубина анализа (кол-во колен)',
+      blockchainLabel: 'Blockchain',
+      // Text only, keep key name same (depthLabel)
+      depthLabel: 'Analysis depth (number of hops)',
       submit: 'Запустить анализ',
       submitLoading: 'Анализируем…',
     },
@@ -119,9 +119,9 @@ const translations: Record<Locale, TranslationSchema> = {
       levelMedium: 'Средний риск',
       levelHigh: 'Высокий риск',
       address: 'Адрес',
-      blockchain: 'Блокчейн',
-      // 👇 это тоже про период
-      depth: 'Глубина анализа',
+      blockchain: 'Blockchain',
+      // Also about analysis depth
+      depth: 'Analysis depth',
       performedAt: 'Анализ выполнен',
     },
     activityStats: {

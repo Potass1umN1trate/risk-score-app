@@ -15,7 +15,7 @@ import { propagateRiskByHalving } from './propagateRiskByHalving';
 import { upsertScannedAddressRisk } from './db';
 
 /**
- * Tx-risk parts (твоя логика):
+ * Transaction risk components:
  * - small transfers: (share_<1usd * 100) * 0.7
  * - activity: (max_tx_per_day / 10) * 0.5
  */
@@ -28,8 +28,8 @@ function calcActivityRisk(stats: ActivityStats): number {
 }
 
 /**
- * Итоговый риск теперь НЕ сумма, а максимум из 3 сигналов:
- * - graph/root risk (после propagation)
+ * Calculate global risk as the maximum of three components:
+ * - graph/root risk (after propagation)
  * - smallTxRisk
  * - activityRisk
  */
@@ -42,20 +42,20 @@ function calcGlobalRisk(params: {
 }
 
 /**
- * Главная функция анализа:
- * - строим граф
- * - подтягиваем bad_addresses и выставляем baseRisk
- * - распространяем риск (halving, mean)
- * - stats считаем по root-транзакциям
+ * Main analysis function:
+ * - Build transaction graph
+ * - Load bad_addresses from database and set baseRisk
+ * - Propagate risk through graph (halving algorithm with mean)
+ * - Calculate stats from root transactions only
  * - globalRiskScore = MAX(graphRisk, smallTxRisk, activityRisk)
- * - сохраняем globalRiskScore в БД (только root), но только если > 50
+ * - Store globalRiskScore in database (root address only, if > 50)
  */
 export async function performFullAnalysis(
   req: WalletAnalysisRequest,
 ): Promise<WalletAnalysisResult> {
   const depth = Math.max(1, Math.min(req.depth ?? 1, 5));
 
-  // нормализация адресов для сопоставления с БД (Ethereum)
+  // Normalize addresses for database comparison (Ethereum uses lowercase)
   const normalize = (a: string) =>
     req.blockchain === 'ethereum' ? a.toLowerCase() : a;
 
@@ -73,10 +73,10 @@ export async function performFullAnalysis(
     normalize,
   );
 
-  // 1) все адреса графа
+  // 1) Collect all addresses from the graph
   const allAddresses = nodes.map((n) => n.id);
 
-  // 2) bad addresses из БД
+  // 2) Load bad addresses from database
   let badAddressMap: Map<string, BadAddressRecord>;
   try {
     badAddressMap = await findBadAddressesForAddresses(req.blockchain, allAddresses);
@@ -125,14 +125,14 @@ export async function performFullAnalysis(
     node.riskScore = clamp100(riskById.get(node.id) ?? 0);
   }
 
-  // 5) stats для UI: считаем ТОЛЬКО root-транзакции
+  // 5) Calculate activity stats from root address transactions only
   const stats = analyzeActivityForRoot(transactions, rootAddress, req.blockchain);
 
-  // 6) graphRisk = риск root после propagation
+  // 6) Graph risk = root node risk after propagation
   const rootNode = nodes.find((n) => n.id === rootAddress);
   const graphRisk = clamp100(rootNode?.riskScore ?? 0);
 
-  // 7) tx-risk parts и финальный риск = MAX(...)
+  // 7) Calculate transaction risk components and final global risk
   const smallTxRisk = calcSmallTxRisk(stats);
   const activityRisk = calcActivityRisk(stats);
 
@@ -166,7 +166,7 @@ export async function performFullAnalysis(
       partial: failedAddresses.length > 0,
       failedAddresses,
       badAddressesCount: badAddressMap.size,
-      // если захочешь дебажить формулу на фронте — добавь эти поля в тип meta и раскомментируй:
+      // To debug risk calculation formula on frontend, add these fields to meta type:
       // graphRisk,
       // smallTxRisk,
       // activityRisk,
@@ -175,8 +175,8 @@ export async function performFullAnalysis(
 }
 
 /**
- * Строим граф: из списка транзакций получаем узлы и связи.
- * normalize() обязателен, иначе Ethereum развалит lookup по БД.
+ * Build transaction graph from list of transactions.
+ * normalize() is essential - ensures Ethereum addresses are lowercase for database lookup.
  */
 function buildGraphFromTransactions(
   txs: BlockchainTx[],
@@ -227,15 +227,14 @@ function buildGraphFromTransactions(
 }
 
 /**
- * ActivityStats ТОЛЬКО для root:
- * - totalTx: сколько транзакций, где root участвовал (from/to)
- * - smallTxShare: доля транзакций < $1 (если есть курс в env)
- * - peakDayTx: максимум root-транзакций за один день (UTC)
+ * Calculate activity stats for root address only:
+ * - totalTx: count of transactions where root participated (from/to)
+ * - smallTxShare: proportion of transactions < $1 (if exchange rate available in env)
+ * - peakDayTx: maximum root transactions in a single day (UTC)
  *
- * ВАЖНО: tx.amount у тебя в нативных единицах (BTC/ETH).
- * Для $1 нужен курс:
- *   PRICE_USD_BTC, PRICE_USD_ETH
- * Если курса нет => smallTxShare = 0 (честно).
+ * NOTE: tx.amount is in native units (BTC/ETH).
+ * Exchange rates required for $1 calculation: PRICE_USD_BTC, PRICE_USD_ETH
+ * If rate unavailable, smallTxShare = 0
  */
 function analyzeActivityForRoot(
   txs: BlockchainTx[],

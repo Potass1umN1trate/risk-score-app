@@ -47,20 +47,20 @@ export default function LoginPage() {
 
     try {
       const ethereum = (window as any)?.ethereum;
-      if (!ethereum) throw new Error('MetaMask не найден. Установи расширение MetaMask.');
+      if (!ethereum) throw new Error('MetaMask not found. Please install MetaMask extension.');
 
-      // 1) nonce (важно: сервер ставит httpOnly cookie mm_nonce)
+      // 1) Get nonce (server sets httpOnly cookie mm_nonce)
       const nonceRes = await fetch('/api/auth/metamask/nonce', { method: 'GET' });
-      if (!nonceRes.ok) throw new Error('Не удалось получить nonce (server error)');
+      if (!nonceRes.ok) throw new Error('Failed to get nonce (server error)');
       const { nonce } = await nonceRes.json();
-      if (!nonce) throw new Error('Nonce пустой (server bug)');
+      if (!nonce) throw new Error('Nonce is empty (server bug)');
 
-      // 2) connect
+      // 2) Connect and get accounts
       const accounts: string[] = await ethereum.request({ method: 'eth_requestAccounts' });
       const address = accounts?.[0];
-      if (!address) throw new Error('MetaMask не вернул адрес');
+      if (!address) throw new Error('MetaMask did not return an address');
 
-      // 3) message — должен совпадать с тем, что парсит authorize()
+      // 3) Create message (must match authorize() parser on server)
       const domain = window.location.host;
       const message =
         `Risk Score Crypto App Login\n` +
@@ -69,15 +69,15 @@ export default function LoginPage() {
         `Nonce: ${nonce}\n` +
         `Issued At: ${new Date().toISOString()}`;
 
-      // 4) signature
+      // 4) Request signature from user
       const signature: string = await ethereum.request({
         method: 'personal_sign',
         params: [message, address],
       });
 
-      if (!signature) throw new Error('Не удалось получить подпись');
+      if (!signature) throw new Error('Failed to get signature from MetaMask');
 
-      // 5) signIn — НЕ передавай address, только message+signature
+      // 5) Call signIn - do NOT pass address, only message + signature
       const res = await signIn('metamask', {
         redirect: false,
         message,

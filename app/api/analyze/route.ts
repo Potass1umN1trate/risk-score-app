@@ -24,17 +24,17 @@ export async function POST(req: Request) {
       );
     }
 
-    // 1️⃣ Выполняем анализ (разрешён без логина)
+    // 1) Perform analysis (allowed without login)
     const result = await performFullAnalysis(reqData);
 
-    // 2️⃣ Проверяем плохих соседей
+    // 2) Check for bad neighbors
     const hasBadNeighbors = result.graph.nodes.some(
       (n) =>
         n.id !== result.rootAddress &&
         (n.isSuspicious || !!n.badTag || !!n.badSource),
     );
 
-    // 3️⃣ Автофлаг (НЕ критичен)
+    // 3) Auto-flag high-risk address (not critical if fails)
     if (result.globalRiskScore >= AUTO_BAD_THRESHOLD && hasBadNeighbors) {
       try {
         await autoFlagBadAddress({
@@ -47,14 +47,14 @@ export async function POST(req: Request) {
       }
     }
 
-    // 4️⃣ Сохраняем историю ТОЛЬКО если пользователь залогинен
+    // 4) Save analysis history ONLY if user is authenticated
     const user = await getSessionUser();
 
     if (user && user.userId) {
       await saveAnalysis(String(user.userId), result);
     }
 
-    // 5️⃣ Возвращаем результат в любом случае
+    // 5) Return result in all cases
     return NextResponse.json(result, { status: 200 });
   } catch (err) {
     console.error('Error in /api/analyze', err);

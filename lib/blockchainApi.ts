@@ -2,34 +2,33 @@
 import type { SupportedBlockchain } from './types';
 
 /**
- * Унифицированная транзакция для анализа и графа.
- * txid — опционально, используется для дедупликации.
+ * Unified transaction format for analysis and graph building.
+ * txid is optional and used for deduplication.
  */
 export interface BlockchainTx {
   txid?: string;
   from: string;
   to: string;
   amount: number;
-  timestamp: number; // unix time (сек)
+  timestamp: number; // unix time (seconds)
 }
 
 /**
- * Чтобы не убиться об rate limit внешних API,
- * ограничиваем общее количество адресов, которые обходим.
+ * Prevent hitting external API rate limits by restricting total addresses analyzed.
  */
 const MAX_ADDRESSES_PER_ANALYSIS = 15;
 const MAX_DEPTH = 5;
 
 /**
- * Результат основного анализа.
+ * Result of transaction analysis for an address.
  */
 export interface FetchTransactionsResult {
   transactions: BlockchainTx[];
-  failedAddresses: string[]; // адреса, по которым были ошибки
+  failedAddresses: string[]; // addresses where data fetch failed
 }
 
 /**
- * Узел в очереди обхода по "коленам".
+ * Queue node for breadth-first traversal by depth level.
  */
 interface AddressNode {
   addr: string;
@@ -37,13 +36,13 @@ interface AddressNode {
 }
 
 /**
- * Обобщённый тип функции получения транзакций по адресу.
+ * Generic type for blockchain-specific transaction fetcher functions.
  */
 type AddressTxFetcher = (address: string) => Promise<BlockchainTx[]>;
 
 /**
- * Карта блокчейн → функция подгрузки транзакций.
- * Это позволяет легко добавлять новые блокчейны.
+ * Map blockchain names to their transaction fetcher functions.
+ * Enables easy addition of new blockchain support.
  */
 const addressTxFetchers: Record<SupportedBlockchain, AddressTxFetcher> = {
   bitcoin: fetchBitcoinAddressTransactions,
@@ -51,12 +50,12 @@ const addressTxFetchers: Record<SupportedBlockchain, AddressTxFetcher> = {
 };
 
 /**
- * Главная функция: собираем транзакции с учётом глубины.
+ * Main entry point: collect transactions considering depth parameter.
  *
- * depth:
- *  1 — только сам адрес
- *  2 — адрес + его контрагенты (1 колено)
- *  3 — + контрагенты контрагентов (2 колена) и т.д.
+ * depth levels:
+ *  1 - root address only
+ *  2 - root address + direct counterparties (1 hop)
+ *  3 - + counterparties of counterparties (2 hops), etc.
  */
 export async function fetchTransactions(
   rootAddress: string,
@@ -92,7 +91,7 @@ export async function fetchTransactions(
 
     collected.push(...addrTxs);
 
-    // Дальше по "коленам" не углубляемся
+    // Stop traversing deeper at max depth
     if (level >= maxDepth - 1) continue;
 
     const neighbors = collectNeighbors(addr, addrTxs);
@@ -113,7 +112,7 @@ export async function fetchTransactions(
 }
 
 /**
- * Собираем соседей: все уникальные from/to, отличные от текущего адреса.
+ * Collect unique neighbors: all unique from/to addresses except the current one.
  */
 function collectNeighbors(
   currentAddr: string,
@@ -134,9 +133,9 @@ function collectNeighbors(
 }
 
 /**
- * Дедупликация транзакций:
- * - если есть txid, используем его как ключ;
- * - иначе собираем составной ключ по from/to/timestamp/amount.
+ * Deduplicate transactions:
+ * - if txid exists, use it as the key
+ * - otherwise compose key from from/to/timestamp/amount
  */
 function deduplicateTransactions(txs: BlockchainTx[]): BlockchainTx[] {
   const unique = new Map<string, BlockchainTx>();
@@ -156,9 +155,9 @@ function deduplicateTransactions(txs: BlockchainTx[]): BlockchainTx[] {
 
 /* ========================= BITCOIN ========================= */
 
-const BTC_CACHE_TTL_MS = 60_000; // 60 секунд
+const BTC_CACHE_TTL_MS = 60_000; // 60 seconds
 
-// Глобальный кэш (живёт, пока живёт Node-процесс)
+// In-memory cache (persists for process lifetime)
 type BtcCacheEntry = { ts: number; txs: BlockchainTx[] };
 
 const globalAny = globalThis as { __btcCache?: Map<string, BtcCacheEntry> };
@@ -202,7 +201,7 @@ async function fetchBitcoinAddressTransactions(
 
   const res = await fetch(url);
   if (!res.ok) {
-    // 400, 429, 500 и т.п. — считаем ошибкой
+    // Treat HTTP errors as failure (400, 429, 500, etc.)
     throw new Error(
       `Bitcoin API (mempool.space) error for ${address}: ${res.status} ${res.statusText}`,
     );
@@ -217,7 +216,7 @@ async function fetchBitcoinAddressTransactions(
 }
 
 /**
- * Преобразуем формат Esplora в унифицированный BlockchainTx.
+ * Convert Esplora API format to unified BlockchainTx format.
  */
 function parseEsploraTransactions(
   address: string,
@@ -242,7 +241,7 @@ function parseEsploraTransactions(
     const fromHasAddr = inputAddrs.includes(address);
     const toHasAddr = outputAddrs.includes(address);
 
-    // Исходящие транзакции: наш адрес в input, остальные — получатели
+    // Outgoing transactions: our address in inputs, others are recipients
     if (fromHasAddr) {
       for (const out of outputs) {
         const to = out.scriptpubkey_address;
@@ -259,7 +258,7 @@ function parseEsploraTransactions(
       }
     }
 
-    // Входящие транзакции: наш адрес в output, остальные — отправители
+    // Incoming transactions: our address in outputs, others are senders
     if (toHasAddr) {
       for (const input of inputs) {
         const from = input.prevout?.scriptpubkey_address;
@@ -287,7 +286,7 @@ type EthplorerTx = {
   hash?: string;
   from?: string;
   to?: string;
-  value?: number; // значение уже в ETH
+  value?: number; // value already in ETH
 };
 
 async function fetchEthereumAddressTransactions(
@@ -295,7 +294,7 @@ async function fetchEthereumAddressTransactions(
 ): Promise<BlockchainTx[]> {
   const apiKey = process.env.ETHPLORER_API_KEY || 'freekey';
 
-  // Берём именно getAddressTransactions — он отдаёт обычные ETH-транзакции
+  // Use getAddressTransactions - returns regular ETH transactions only
   const url = `https://api.ethplorer.io/getAddressTransactions/${encodeURIComponent(
     address,
   )}?apiKey=${encodeURIComponent(apiKey)}&limit=50&showZeroValues=false`;
@@ -315,7 +314,7 @@ async function fetchEthereumAddressTransactions(
     const to = tx.to || address;
     const amount = tx.value ?? 0;
 
-    // Отбрасываем нулевые/битые
+    // Skip zero or invalid transactions
     if (!from || !to) continue;
     if (!Number.isFinite(amount) || amount === 0) continue;
 
@@ -323,7 +322,7 @@ async function fetchEthereumAddressTransactions(
       txid: tx.hash,
       from,
       to,
-      amount, // уже в ETH
+      amount, // already in ETH
       timestamp: tx.timestamp,
     });
   }

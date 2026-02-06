@@ -13,7 +13,7 @@ export interface BadAddressRecord {
 }
 
 /**
- * Забираем все плохие адреса для набора адресов (по одной сети).
+ * Fetch all bad addresses for a set of addresses on a specific blockchain.
  */
 export async function findBadAddressesForAddresses(
   blockchain: SupportedBlockchain,
@@ -54,7 +54,7 @@ export async function findBadAddressesForAddresses(
   return map;
 }
 
-// >>> НОВОЕ: обновление risk_level для уже существующей записи
+// Update risk_level for an existing bad address record
 export async function updateBadAddressRisk(
   blockchain: SupportedBlockchain,
   address: string,

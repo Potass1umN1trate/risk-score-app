@@ -92,7 +92,7 @@ export default function DashboardPage() {
   });
   const [savingBad, setSavingBad] = useState(false);
 
-  // redirect если не залогинен
+  // Redirect if user is not authenticated
   useEffect(() => {
     if (status === 'loading') return;
     if (!me) router.push('/login');

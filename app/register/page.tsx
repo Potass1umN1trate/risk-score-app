@@ -71,22 +71,22 @@ export default function RegisterPage() {
     try {
       const ethereum = (window as any)?.ethereum;
       if (!ethereum) {
-        throw new Error('MetaMask не найден. Установи расширение MetaMask.');
+        throw new Error('MetaMask not found. Please install MetaMask extension.');
       }
 
-      // 1) nonce (ставится в httpOnly cookie на сервере)
+      // 1) Get nonce (stored in httpOnly cookie on server)
       const nonceRes = await fetch('/api/auth/metamask/nonce', { method: 'GET' });
-      if (!nonceRes.ok) throw new Error('Не удалось получить nonce (server error)');
+      if (!nonceRes.ok) throw new Error('Failed to get nonce (server error)');
       const { nonce } = await nonceRes.json();
 
-      if (!nonce) throw new Error('Nonce пустой (server bug)');
+      if (!nonce) throw new Error('Nonce is empty (server bug)');
 
-      // 2) connect
+      // 2) Connect and get accounts
       const accounts: string[] = await ethereum.request({ method: 'eth_requestAccounts' });
       const address = accounts?.[0];
-      if (!address) throw new Error('MetaMask не вернул адрес');
+      if (!address) throw new Error('MetaMask did not return an address');
 
-      // 3) message (должен совпадать с парсером на сервере!)
+      // 3) Create message (must match server-side parser)
       const domain = window.location.host;
       const message =
         `Risk Score Crypto App Login\n` +
@@ -95,15 +95,15 @@ export default function RegisterPage() {
         `Nonce: ${nonce}\n` +
         `Issued At: ${new Date().toISOString()}`;
 
-      // 4) signature
+      // 4) Request signature from user
       const signature: string = await ethereum.request({
         method: 'personal_sign',
         params: [message, address],
       });
 
-      if (!signature) throw new Error('Не удалось получить подпись');
+      if (!signature) throw new Error('Failed to get signature from MetaMask');
 
-      // 5) NextAuth signIn (credentials provider "metamask")
+      // 5) Call NextAuth signIn with MetaMask credentials provider
       const result = await signIn('metamask', {
         redirect: false,
         message,
@@ -117,7 +117,7 @@ export default function RegisterPage() {
       router.push('/dashboard');
       router.refresh();
     } catch (err: any) {
-      // нормальные ошибки metamask часто приходят как { code, message }
+      // MetaMask errors often come as { code, message }
       setError(err?.message || 'MetaMask login failed');
     } finally {
       setLoadingWallet(false);

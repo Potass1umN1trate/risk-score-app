@@ -43,7 +43,7 @@ export function clearSessionCookie(res: NextResponse) {
   });
 }
 
-// для API-роутов
+// For API routes
 export async function getCurrentUserFromRequest(
   req: NextRequest,
 ): Promise<AuthSession | null> {
@@ -52,7 +52,7 @@ export async function getCurrentUserFromRequest(
   return getSessionAndUser(sessionId);
 }
 
-// на будущее: logout по sessionId (если понадобится из других мест)
+// Future feature: logout by sessionId (if needed from other places)
 export async function logoutBySessionId(sessionId: string) {
   await deleteSession(sessionId);
 }
@@ -60,8 +60,8 @@ export async function logoutBySessionId(sessionId: string) {
 export async function getSessionUser(
   req: Request,
 ): Promise<AuthSession | null> {
-  // В API-роутах тип `req` — Web Request, у него нет req.cookies,
-  // поэтому парсим куки руками из заголовка
+  // In API routes, req is Web Request without req.cookies.
+  // Parse cookies manually from headers.
   const cookieHeader = req.headers.get('cookie') || '';
 
   let sessionId: string | undefined;
@@ -84,6 +84,6 @@ export async function getSessionUser(
 
   if (!sessionId) return null;
 
-  // getSessionAndUser уже возвращает AuthSession ({ userId, email, role })
+  // getSessionAndUser already returns AuthSession ({ userId, email, role })
   return getSessionAndUser(sessionId);
 }

@@ -4,10 +4,10 @@ import type { GraphNode, GraphLink } from './types';
 export interface RiskScoreInput {
   nodes: GraphNode[];
   links: GraphLink[];
-  rootAddress: string; // главный адрес, для которого считаем итоговый риск
+  rootAddress: string; // root address to calculate risk for
 }
 
-// ограничиваем риск 0–100
+// Clamp risk to 0-100 range
 const clamp = (x: number) => Math.max(0, Math.min(100, x));
 
 export function calculateRiskScore({
@@ -15,17 +15,17 @@ export function calculateRiskScore({
   links,
   rootAddress,
 }: RiskScoreInput): number {
-  // Быстрый доступ: id -> node
+  // Quick lookup: id -> node
   const byId = new Map<string, GraphNode>();
   for (const n of nodes) {
     byId.set(n.id, n);
   }
 
-  // Базовый риск корневого адреса (из БД, если он там есть)
+  // Base risk of root address (from database if available)
   const root = byId.get(rootAddress);
   const baseRootRisk = clamp(root?.riskScore ?? 0);
 
-  // Собираем соседей корневого адреса по рёбрам графа
+  // Collect neighbors of root address from graph edges
   const neighbors = new Set<string>();
   for (const link of links) {
     const src =
@@ -44,7 +44,7 @@ export function calculateRiskScore({
     }
   }
 
-  // Средний риск соседей
+  // Average risk of neighbors
   let neighborsSum = 0;
   for (const id of neighbors) {
     const n = byId.get(id);
@@ -53,7 +53,7 @@ export function calculateRiskScore({
   }
   const neighborsAvg = neighbors.size ? neighborsSum / neighbors.size : 0;
 
-  // Итог: базовый риск корневого + половина среднего риска соседей
+  // Final: base root risk + half of neighbors' average risk
   const finalRootRisk = clamp(baseRootRisk + neighborsAvg / 2);
 
   return Math.round(finalRootRisk);

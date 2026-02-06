@@ -28,7 +28,7 @@ export interface DbUser {
   created_at: Date;
 }
 
-// То, что возвращает getUserHistory наружу (camelCase)
+// Output format from getUserHistory (camelCase)
 export interface HistoryRow {
   id: number;
   userId: string | null;
@@ -40,9 +40,9 @@ export interface HistoryRow {
 }
 
 /**
- * ВАЖНО:
- * В БД risk_score сейчас INTEGER. Значит любые дроби обязаны быть приведены к int.
- * Иначе будет "invalid input syntax for type integer: 8.65".
+ * IMPORTANT:
+ * Database risk_score column is INTEGER. Any decimal values must be converted to int.
+ * Otherwise: "invalid input syntax for type integer: 8.65"
  */
 function scoreToInt(x: unknown): number {
   const n = typeof x === 'number' ? x : Number(x);
@@ -74,7 +74,7 @@ export async function saveAnalysis(
         analysis.blockchain,
         analysis.rootAddress,
         analysis.depth,
-        scoreToInt(analysis.globalRiskScore), // ✅ вот фикс
+        scoreToInt(analysis.globalRiskScore), // Convert to integer for database
       ],
     );
   } finally {
