@@ -30,9 +30,9 @@ export default function WalletAnalysisForm({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // синхронизация с URL
+  // Sync with URL parameters
   useEffect(() => {
-    if (typeof initialAddress === 'string') {
+    if (initialAddress && typeof initialAddress === 'string') {
       setAddress(initialAddress);
     }
   }, [initialAddress]);

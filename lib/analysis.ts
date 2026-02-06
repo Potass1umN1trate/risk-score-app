@@ -85,7 +85,7 @@ export async function performFullAnalysis(
     badAddressMap = new Map();
   }
 
-  // 3) baseRisk: выставляем исходный риск узлам из БД
+  // 3) baseRisk: set initial risk scores from bad address database
   for (const node of nodes) {
     const bad = badAddressMap.get(node.id);
 
@@ -94,17 +94,12 @@ export async function performFullAnalysis(
       node.riskScore = Math.max(node.riskScore ?? 0, Number(bad.riskLevel ?? 0));
     } else {
       node.isSuspicious = node.isSuspicious ?? false;
-      node.riskScore = Number.isFinite(node.riskScore as any)
-        ? (node.riskScore as number)
-        : 0;
+      node.riskScore = Number.isFinite(node.riskScore as any) ? node.riskScore : 0;
     }
-    node.riskScore = clamp100(node.riskScore ?? 0);
+    node.riskScore = clamp100(node.riskScore);
   }
 
-  /**
-   * 4) Propagation:
-   * делаем отдельные узлы с baseRisk/risk, не ломая GraphNode тип.
-   */
+  // Risk propagation: create separate nodes with baseRisk/risk without modifying GraphNode type
   type PropNode = GraphNode & { baseRisk: number; risk: number };
 
   const propNodes: PropNode[] = nodes.map((n) => ({
@@ -122,7 +117,7 @@ export async function performFullAnalysis(
     maxDepth: depth,
   });
 
-  // копируем результат propagation обратно в nodes
+  // Copy propagation results back to nodes
   const riskById = new Map<string, number>();
   for (const n of propNodes) riskById.set(n.id, clamp100(n.risk));
 
@@ -141,12 +136,12 @@ export async function performFullAnalysis(
   const smallTxRisk = calcSmallTxRisk(stats);
   const activityRisk = calcActivityRisk(stats);
 
-  // IMPORTANT: округляем до int, потому что analysis_history.global_risk_score у тебя integer
+  // Round to integer for database storage (analysis_history.global_risk_score is INTEGER)
   const globalRiskScore = Math.round(
     calcGlobalRisk({ graphRisk, smallTxRisk, activityRisk }),
   );
 
-  // 8) динамика: пишем в БД только root и только если > 50
+  // Store high-risk addresses in database (only if score > 50)
   try {
     if (globalRiskScore > 50) {
       await upsertScannedAddressRisk({

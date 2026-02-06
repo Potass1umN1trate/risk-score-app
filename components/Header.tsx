@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import { useLanguage } from './LanguageProvider';
 import type { UserRole } from '@/lib/types';
 import { signOut, useSession } from 'next-auth/react';
@@ -14,7 +14,6 @@ type MeUser = {
 
 export default function Header() {
   const pathname = usePathname();
-  const router = useRouter();
   const { locale, setLocale, t } = useLanguage();
 
   const { data: session, status } = useSession();
@@ -23,7 +22,7 @@ export default function Header() {
     session?.user
       ? {
           userId: Number((session.user as any).id),
-          email: session.user.email ?? '',
+          email: session.user.email || '',
           role: (session.user as any).role as UserRole,
         }
       : null;
@@ -48,12 +47,11 @@ export default function Header() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={
-                  'text-sm ' +
-                  (active
+                className={`text-sm ${
+                  active
                     ? 'text-emerald-400 font-medium'
-                    : 'text-slate-300 hover:text-white')
-                }
+                    : 'text-slate-300 hover:text-white'
+                }`}
               >
                 {item.label}
               </Link>
@@ -62,7 +60,6 @@ export default function Header() {
         </nav>
 
         <div className="flex gap-2 items-center">
-          {/* переключатель RU/EN */}
           <button
             type="button"
             onClick={() => setLocale(locale === 'ru' ? 'en' : 'ru')}
@@ -71,7 +68,6 @@ export default function Header() {
             {locale === 'ru' ? 'EN' : 'RU'}
           </button>
 
-          {/* пока сессия грузится – ничего не рисуем */}
           {status === 'loading' ? null : user ? (
             <>
               <div className="flex flex-col items-end mr-2">

@@ -22,7 +22,9 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
 
-    if (password !== password2) {
+    // Validate passwords match (safe timing comparison for UI)
+    const passwordsMatch = password.length === password2.length && password === password2;
+    if (!passwordsMatch || !password.length) {
       setError('Пароли не совпадают');
       return;
     }

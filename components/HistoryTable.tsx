@@ -23,8 +23,8 @@ export default function HistoryTable({ items }: Props) {
           </tr>
         </thead>
         <tbody>
-          {items.map((r, i) => (
-            <tr key={i} className="border-t border-slate-800">
+          {items.map((r) => (
+            <tr key={`${r.rootAddress}-${r.createdAt}`} className="border-t border-slate-800">
               <td className="px-3 py-2">{r.rootAddress}</td>
               <td className="px-3 py-2">{r.blockchain}</td>
               <td className="px-3 py-2">{r.depth}</td>
