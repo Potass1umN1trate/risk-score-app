@@ -1,0 +1,235 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-initdb
+  namespace: risk-score-app
+data:
+  01_schema.sql: |
+    -- =============================================
+    -- Risk Score App — Database Schema
+    -- =============================================
+
+    -- Shared updated_at trigger function
+    CREATE OR REPLACE FUNCTION set_updated_at()
+    RETURNS TRIGGER AS $$
+    BEGIN
+      NEW.updated_at = NOW();
+      RETURN NEW;
+    END;
+    $$ LANGUAGE plpgsql;
+
+    -- =============================================
+    -- Roles
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS roles (
+      id   SERIAL PRIMARY KEY,
+      name VARCHAR(32) NOT NULL UNIQUE  -- ADMIN, MODERATOR, USER
+    );
+
+    INSERT INTO roles (name) VALUES ('ADMIN'), ('MODERATOR'), ('USER')
+      ON CONFLICT DO NOTHING;
+
+    -- =============================================
+    -- Users
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS users (
+      id            CHAR(36)     PRIMARY KEY,
+      created_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      updated_at    TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      email         VARCHAR(255) NOT NULL UNIQUE,
+      password_hash VARCHAR(255),         -- null for OAuth-only accounts
+      is_blocked    BOOLEAN      NOT NULL DEFAULT FALSE
+    );
+
+    CREATE OR REPLACE TRIGGER trg_users_updated_at
+      BEFORE UPDATE ON users
+      FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+    -- =============================================
+    -- User ↔ Role (many-to-many)
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS user_roles (
+      user_id CHAR(36) NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      role_id INTEGER  NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
+      PRIMARY KEY (user_id, role_id)
+    );
+
+    -- =============================================
+    -- OAuth accounts
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS oauth_accounts (
+      id                  CHAR(36)    PRIMARY KEY,
+      user_id             CHAR(36)    NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      provider            VARCHAR(50) NOT NULL,
+      provider_account_id VARCHAR(255) NOT NULL,
+      created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      UNIQUE (provider, provider_account_id)
+    );
+
+    -- =============================================
+    -- Networks (BTC, ETH, TRX, …)
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS networks (
+      id        SERIAL      PRIMARY KEY,
+      code      VARCHAR(16) NOT NULL UNIQUE,  -- BTC, ETH, TRX
+      name      VARCHAR(64) NOT NULL,
+      is_active BOOLEAN     NOT NULL DEFAULT TRUE
+    );
+
+    INSERT INTO networks (code, name) VALUES
+      ('BTC',   'Bitcoin'),
+      ('ETH',   'Ethereum'),
+      ('TRX',   'TRON'),
+      ('BNB',   'BNB Smart Chain'),
+      ('SOL',   'Solana'),
+      ('XRP',   'XRP Ledger'),
+      ('ADA',   'Cardano'),
+      ('MATIC', 'Polygon'),
+      ('AVAX',  'Avalanche'),
+      ('LTC',   'Litecoin')
+    ON CONFLICT DO NOTHING;
+
+    -- =============================================
+    -- Risk categories
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS risk_categories (
+      id       SERIAL       PRIMARY KEY,
+      name     VARCHAR(100) NOT NULL UNIQUE,
+      code     VARCHAR(32)  NOT NULL UNIQUE,  -- машиночитаемый ключ для ML (mixer, scam, …)
+      severity INTEGER      NOT NULL DEFAULT 50  -- 0-100, used in scoring
+    );
+
+    INSERT INTO risk_categories (name, code, severity) VALUES
+      ('Sanctions',       'sanctions',      100),
+      ('Mixer',           'mixer',           90),
+      ('Scam',            'scam',            85),
+      ('Darknet Market',  'darknet_market',  95),
+      ('Ransomware',      'ransomware',      95),
+      ('Phishing',        'phishing',        80),
+      ('Gambling',        'gambling',        40),
+      ('Exchange',        'exchange',        10),
+      ('Suspicious',      'suspicious',      60)
+    ON CONFLICT DO NOTHING;
+
+    -- =============================================
+    -- Flagged addresses (bad address book)
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS flagged_addresses (
+      id                  CHAR(36)     PRIMARY KEY,
+      network_id          INTEGER      NOT NULL REFERENCES networks(id),
+      address             VARCHAR(128) NOT NULL,
+      risk_category_id    INTEGER      NOT NULL REFERENCES risk_categories(id),
+      comment             TEXT,
+      created_by_user_id  CHAR(36)     REFERENCES users(id) ON DELETE SET NULL,
+      created_at          TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      is_active           BOOLEAN      NOT NULL DEFAULT TRUE,
+      UNIQUE (network_id, address)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_flagged_address_lookup
+      ON flagged_addresses (network_id, address) WHERE is_active = TRUE;
+
+    -- =============================================
+    -- Analysis requests
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS analysis_requests (
+      id           CHAR(36)     PRIMARY KEY,
+      user_id      CHAR(36)     REFERENCES users(id) ON DELETE SET NULL,  -- NULL = internal call
+      network_id   INTEGER      REFERENCES networks(id),
+      network_code VARCHAR(10),           -- быстрый lookup без JOIN
+      address      VARCHAR(128) NOT NULL,
+      depth        INTEGER      NOT NULL DEFAULT 2,
+      limit_tx     INTEGER      NOT NULL DEFAULT 50,
+      status       VARCHAR(20)  NOT NULL DEFAULT 'pending',  -- pending|processing|completed|failed
+      error_message TEXT,
+      result_id    CHAR(36),              -- заполняется после завершения
+      created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),
+      completed_at TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_analysis_requests_user
+      ON analysis_requests (user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_analysis_requests_status
+      ON analysis_requests (status, created_at DESC);
+
+    -- =============================================
+    -- Analysis results
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS analysis_results (
+      id               CHAR(36)      PRIMARY KEY,
+      request_id       CHAR(36)      NOT NULL UNIQUE REFERENCES analysis_requests(id) ON DELETE CASCADE,
+      address          VARCHAR(128)  NOT NULL,
+      network_code     VARCHAR(10)   NOT NULL,
+      risk_score       DECIMAL(6,2)  NOT NULL,
+      risk_level       VARCHAR(32)   NOT NULL,  -- LOW, MEDIUM, HIGH, CRITICAL
+      model_version    VARCHAR(64),
+      raw_probability  FLOAT,
+      factors_json     JSONB,        -- {model_version, raw_probability, features: {...}}
+      analyzed_at      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      created_at       TIMESTAMPTZ   NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_analysis_results_address
+      ON analysis_results (address, network_code, analyzed_at DESC);
+
+    -- =============================================
+    -- Graph nodes (address nodes per result)
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS address_nodes (
+      id         CHAR(36)     PRIMARY KEY,
+      result_id  CHAR(36)     NOT NULL REFERENCES analysis_results(id) ON DELETE CASCADE,
+      address    VARCHAR(128) NOT NULL,
+      depth      INTEGER      NOT NULL DEFAULT 0,
+      is_root    BOOLEAN      NOT NULL DEFAULT FALSE,
+      is_flagged BOOLEAN      NOT NULL DEFAULT FALSE,
+      flag_types TEXT[],
+      tags_json  JSONB        -- дополнительные метаданные
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_address_nodes_result
+      ON address_nodes (result_id);
+
+    -- =============================================
+    -- Graph edges (aggregated transactions between node pairs)
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS graph_edges (
+      id           CHAR(36)       PRIMARY KEY,
+      result_id    CHAR(36)       NOT NULL REFERENCES analysis_results(id) ON DELETE CASCADE,
+      from_address VARCHAR(128)   NOT NULL,
+      to_address   VARCHAR(128)   NOT NULL,
+      tx_count     INTEGER        NOT NULL DEFAULT 1,
+      amount       DECIMAL(30,10),   -- суммарный объём (total_amount)
+      tx_time      TIMESTAMPTZ,      -- последняя транзакция (last_seen)
+      first_seen   TIMESTAMPTZ,
+      last_seen    TIMESTAMPTZ
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_graph_edges_result
+      ON graph_edges (result_id);
+
+    -- =============================================
+    -- Feature vectors (ML input snapshot)
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS analysis_features (
+      id            CHAR(36)  PRIMARY KEY,
+      result_id     CHAR(36)  NOT NULL REFERENCES analysis_results(id) ON DELETE CASCADE,
+      features_json JSONB     NOT NULL
+    );
+
+    -- =============================================
+    -- Audit log
+    -- =============================================
+    CREATE TABLE IF NOT EXISTS audit_logs (
+      id          CHAR(36)     PRIMARY KEY,
+      user_id     CHAR(36)     REFERENCES users(id) ON DELETE SET NULL,
+      action      VARCHAR(64)  NOT NULL,   -- LOGIN, RUN_ANALYSIS, ADD_FLAGGED, …
+      entity      VARCHAR(64),
+      entity_id   CHAR(36),
+      details_json JSONB,
+      created_at  TIMESTAMPTZ  NOT NULL DEFAULT NOW()
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_user
+      ON audit_logs (user_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_action
+      ON audit_logs (action, created_at DESC);

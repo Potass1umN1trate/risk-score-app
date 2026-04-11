@@ -1,0 +1,11 @@
+fastapi==0.115.5
+uvicorn[standard]==0.32.1
+httpx==0.28.1          # async HTTP — для blockchain API
+networkx==3.4.2        # построение и анализ графа
+xgboost==2.1.3         # модель оценки риска
+numpy==2.1.3
+pandas==2.2.3          # нужен для train скрипта
+scikit-learn==1.5.2    # preprocessing, metrics при обучении
+asyncpg==0.30.0        # async PostgreSQL driver
+pydantic==2.10.3       # валидация входных данных (уже в FastAPI, явно для версии)
+pydantic-settings==2.6.1
