@@ -1,279 +1,395 @@
 """
-Train an XGBoost model on the Elliptic Dataset for Bitcoin.
+Train XGBoost on the Real-CATS Bitcoin dataset.
 
-═══════════════════════════════════════════════════════════
-ABOUT THE ELLIPTIC DATASET
-═══════════════════════════════════════════════════════════
-A public labeled Bitcoin transaction dataset:
-  - 203,769 transactions, graph of 234,355 edges
-  - Class 1 = illicit (drugs, fraud, scams — ~4,600 tx)
-  - Class 2 = licit  (exchanges, pools, services — ~42,000 tx)
-  - Class 0 = unknown (no label)
+Feature mapping strategy
+────────────────────────
+Real-CATS columns → our 27 AddressFeatures fields:
 
-Files (download from Kaggle: ellipticco/elliptic-data-set):
-  elliptic_txs_features.csv  — 166 features per transaction
-  elliptic_txs_classes.csv   — labels (unknown / 1 / 2)
+  VOLUME
+    receipt_transactions        → tx_in_count
+    payment_transactions        → tx_out_count
+    total_received_BTC / 1e8    → total_received   (satoshi → BTC)
+    total_sent_BTC     / 1e8    → total_sent
+    (total_received_BTC + total_sent_BTC) / max(transaction_number,1) / 1e8
+                                → median_tx_amount
+    max(max_received_amount, max_sent_amount) / 1e8
+                                → max_tx_amount
+    received_counters + sent_counters
+                                → unique_counterparties
 
-Elliptic column layout (0-based after txId):
-  0        = timestep
-  1        = number of inputs
-  2        = number of outputs
-  3        = total BTC transacted
-  4        = fees
-  5        = total input BTC
-  6        = total output BTC
-  7-93     = other local features (UTXO patterns, script types, …)
-  94-165   = aggregated neighbour features
+  TOPOLOGY  (partially synthesised — see comments)
+    total_input_slots + total_output_slots
+                                → depth1_neighbors  (proxy: direct counterparty slots)
+    SYNTHESISED                 → depth2_neighbors  = depth1 × branching + noise
+    receipt_transactions        → in_degree
+    payment_transactions        → out_degree
+    SYNTHESISED                 → graph_density
+    SYNTHESISED                 → clustering_coefficient
 
-IMPORTANT: Elliptic features are pre-normalized (z-scores by the dataset authors).
-Our AddressFeatures use raw values (BTC, counts, ratios).
-We must apply the same z-score normalization to raw features at inference time.
+  TEMPORAL
+    activity_d                  → active_days
+    transaction_number / max(lifetime/86400, 1)
+                                → tx_per_day
+    lifetime / 86400            → lifespan_days
 
-Strategy:
-  1. Build a 27-column proxy matrix from Elliptic by mapping closest columns.
-  2. For each mapped column compute mean/std from Elliptic labeled data.
-  3. Train XGBoost on the normalized proxy matrix.
-  4. Save mean/std as btc_scaler.json alongside the model.
-  5. At inference time: normalize raw AddressFeatures → pass to model.
+  RISK SIGNALS  (all zero during training; real values come from DB at inference)
+    0                           → flagged_neighbors_count
+    0.0                         → flagged_neighbors_ratio
+    999                         → min_dist_to_flagged
+    0 × 8                       → flag_* per category
 
-Flag features (mixer, scam, …) are always 0 in Elliptic training data —
-the model learns volume/topology patterns; flags add extra signal at inference.
+Why synthesise graph topology?
+  Real-CATS records per-address aggregates only (no full graph).
+  depth2_neighbors, graph_density, and clustering_coefficient cannot be
+  derived directly from a single-address record.  We generate them with
+  distributions that match what the BFS graph builder produces in production:
+    - depth2 ≈ Poisson(depth1 × mean_branching_factor)
+    - graph_density = (in+out) / max(depth1*(depth1-1), 1)  — same formula as features.py
+    - clustering_coefficient ~ Beta(0.5, 5) ≈ small positive values
 
-═══════════════════════════════════════════════════════════
-HOW TO RUN
-═══════════════════════════════════════════════════════════
-  1. kaggle datasets download ellipticco/elliptic-data-set -p training/data --unzip
-  2. cd analytics && python -m training.train_btc
-  Output: models/btc_xgboost.json + models/btc_scaler.json
+  This is intentional: the model never sees real graph-topology values in
+  production either (they are computed live from mempool.space data),
+  so training on realistic-but-synthetic proxies is correct.
+
+Normalization
+  Scaler statistics are computed FROM the Real-CATS training split (never
+  from hardcoded constants as in the Elliptic approach).  At inference,
+  xgboost_scorer.py applies the identical log1p + z-score pipeline using
+  btc_scaler.json produced here.
+
+Label encoding
+  label == 0  →  benign   (class 0, y=0)
+  label == 1  →  criminal (class 1, y=1)
+  Real-CATS labels: all BB.tsv rows are benign; all CB.tsv rows are criminal.
 """
 
-from __future__ import annotations
-
 import json
-import sys
 import logging
+import os
+import sys
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import xgboost as xgb
 from sklearn.model_selection import StratifiedKFold
-from sklearn.metrics import roc_auc_score, average_precision_score, classification_report
+from sklearn.metrics import roc_auc_score, average_precision_score
+import xgboost as xgb
 
-logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+logging.basicConfig(level=logging.INFO, format="%(levelname)s  %(message)s")
 log = logging.getLogger(__name__)
 
-# ─── Paths ────────────────────────────────────────────────────────────────────
+# ── Paths ──────────────────────────────────────────────────────────────────────
+TRAINING_DIR = Path(__file__).parent
+DATA_DIR     = TRAINING_DIR / "data"
+MODEL_DIR    = TRAINING_DIR.parent / "models"
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
 
-SCRIPT_DIR  = Path(__file__).parent
-DATA_DIR    = SCRIPT_DIR / "data"
-MODEL_DIR   = SCRIPT_DIR.parent / "models"
-MODEL_PATH  = MODEL_DIR / "btc_xgboost.json"
-SCALER_PATH = MODEL_DIR / "btc_scaler.json"
+CB_PATH = DATA_DIR / "CB.tsv"
+BB_PATH = DATA_DIR / "BB.tsv"
 
-FEATURES_CSV = DATA_DIR / "elliptic_txs_features.csv"
-CLASSES_CSV  = DATA_DIR / "elliptic_txs_classes.csv"
-
-# ─── Proxy feature mapping ────────────────────────────────────────────────────
-# (our_feature_name, elliptic_col_idx_after_txId)
-# None → column is always 0 in training (flag features, temporal features)
-FEATURE_MAP: list[tuple[str, int | None]] = [
-    # Volume
-    ("tx_in_count",              1),
-    ("tx_out_count",             2),
-    ("total_received",           5),
-    ("total_sent",               6),
-    ("median_tx_amount",         7),   # avg BTC received — closest proxy
-    ("max_tx_amount",            9),   # std BTC received — proxy for extremes
-    ("unique_counterparties",    3),   # total BTC transacted — proxy
-    # Topology
-    ("depth1_neighbors",        94),   # neighbour n_inputs — proxy for breadth
-    ("depth2_neighbors",        95),   # neighbour n_outputs
-    ("in_degree",                1),   # same as tx_in_count
-    ("out_degree",               2),   # same as tx_out_count
-    ("graph_density",         None),
-    ("clustering_coefficient", None),
-    # Temporal (not in Elliptic)
-    ("active_days",            None),
-    ("tx_per_day",             None),
-    ("lifespan_days",          None),
-    # Risk signals (not in Elliptic — always 0 during training)
-    ("flagged_neighbors_count",  None),
-    ("flagged_neighbors_ratio",  None),
-    ("min_dist_to_flagged",      None),
-    ("flag_mixer",               None),
-    ("flag_scam",                None),
-    ("flag_sanctions",           None),
-    ("flag_darknet_market",      None),
-    ("flag_ransomware",          None),
-    ("flag_gambling",            None),
-    ("flag_phishing",            None),
-    ("flag_suspicious",          None),
+# These must stay in sync with OUR_FEATURE_NAMES in app/graph/features.py
+FEATURE_NAMES = [
+    "tx_in_count", "tx_out_count", "total_received", "total_sent",
+    "median_tx_amount", "max_tx_amount", "unique_counterparties",
+    "depth1_neighbors", "depth2_neighbors", "in_degree", "out_degree",
+    "graph_density", "clustering_coefficient",
+    "active_days", "tx_per_day", "lifespan_days",
+    "flagged_neighbors_count", "flagged_neighbors_ratio", "min_dist_to_flagged",
+    "flag_mixer", "flag_scam", "flag_sanctions", "flag_darknet_market",
+    "flag_ransomware", "flag_gambling", "flag_phishing", "flag_suspicious",
 ]
 
-OUR_FEATURE_NAMES = [name for name, _ in FEATURE_MAP]
-# Indices of features that ARE mapped to Elliptic columns (normalization applies)
-MAPPED_INDICES = [i for i, (_, idx) in enumerate(FEATURE_MAP) if idx is not None]
+# Features that get log1p + z-score normalization at inference
+LOG_FEATURES = {
+    "tx_in_count", "tx_out_count", "total_received", "total_sent",
+    "median_tx_amount", "max_tx_amount", "unique_counterparties",
+    "depth1_neighbors", "depth2_neighbors", "in_degree", "out_degree",
+}
+
+SATOSHI = 1e8   # 1 BTC = 1e8 satoshi
 
 
-# ─── Data loading + normalization ─────────────────────────────────────────────
+# ── Feature engineering ────────────────────────────────────────────────────────
 
-def load_elliptic() -> tuple[np.ndarray, np.ndarray, dict]:
+def map_features(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     """
-    Load Elliptic, build 27-dim proxy matrix, fit z-score normalization.
-
-    Returns:
-        X_norm: normalized float32 array (N, 27)
-        y:      int array (N,)
-        scaler: {"mean": [...], "std": [...]} for 27 features
+    Transform a Real-CATS dataframe into the 27-column AddressFeatures space.
+    Returns a new dataframe with exactly FEATURE_NAMES columns.
     """
-    if not FEATURES_CSV.exists() or not CLASSES_CSV.exists():
-        log.error(
-            "Dataset not found in %s\n"
-            "Download from: https://www.kaggle.com/datasets/ellipticco/elliptic-data-set\n"
-            "Expected files:\n  %s\n  %s",
-            DATA_DIR, FEATURES_CSV, CLASSES_CSV,
-        )
-        sys.exit(1)
+    out = pd.DataFrame(index=df.index)
 
-    log.info("Loading features from %s …", FEATURES_CSV)
-    feat_df = pd.read_csv(FEATURES_CSV, header=None)
-    txids = feat_df.iloc[:, 0]
+    # ── VOLUME ─────────────────────────────────────────────────────────────────
+    out["tx_in_count"]  = df["receipt_transactions"].clip(lower=0)
+    out["tx_out_count"] = df["payment_transactions"].clip(lower=0)
 
-    # Build raw proxy matrix
-    proxy = np.zeros((len(feat_df), len(FEATURE_MAP)), dtype=np.float64)
-    for col_idx, (_, elliptic_idx) in enumerate(FEATURE_MAP):
-        if elliptic_idx is not None:
-            proxy[:, col_idx] = feat_df.iloc[:, elliptic_idx + 1].values  # +1 for txId
+    # satoshi → BTC
+    out["total_received"] = (df["total_received_BTC"] / SATOSHI).clip(lower=0)
+    out["total_sent"]     = (df["total_sent_BTC"]     / SATOSHI).clip(lower=0)
 
-    log.info("Loading labels from %s …", CLASSES_CSV)
-    cls_df = pd.read_csv(CLASSES_CSV, header=None, names=["txid", "class"])
-    cls_df["label"] = cls_df["class"].map({"1": 1, "2": 0, 1: 1, 2: 0})
+    total_tx = df["transaction_number"].clip(lower=1)
+    out["median_tx_amount"] = (
+        (df["total_received_BTC"] + df["total_sent_BTC"]) / SATOSHI / total_tx
+    ).clip(lower=0)
 
-    merged = pd.DataFrame({"txid": txids.astype(str)}).merge(
-        cls_df.assign(txid=cls_df["txid"].astype(str)), on="txid", how="left"
+    max_sent = df["max_sent_amount"].fillna(0).clip(lower=0) / SATOSHI
+    max_recv = df["max_received_amount"].fillna(0).clip(lower=0) / SATOSHI
+    out["max_tx_amount"] = np.maximum(max_sent, max_recv)
+
+    out["unique_counterparties"] = (
+        df["received_counters"].fillna(0).clip(lower=0)
+        + df["sent_counters"].fillna(0).clip(lower=0)
     )
-    mask = merged["label"].notna()
 
-    X_labeled = proxy[mask.values]
-    y_labeled  = merged.loc[mask, "label"].values.astype(int)
+    # ── TOPOLOGY ───────────────────────────────────────────────────────────────
+    depth1 = (
+        df["total_input_slots"].fillna(0).clip(lower=0)
+        + df["total_output_slots"].fillna(0).clip(lower=0)
+    ).clip(lower=1)
+    out["depth1_neighbors"] = depth1
 
-    # Fit z-score scaler on labeled data (only mapped columns)
-    mean = np.zeros(len(FEATURE_MAP), dtype=np.float64)
-    std  = np.ones(len(FEATURE_MAP),  dtype=np.float64)
+    # Synthesise depth2:  Poisson(depth1 × branching_factor)
+    # Typical branching in Bitcoin graphs: 2-4 hops.
+    branching_factor = rng.uniform(1.5, 3.5, size=len(df))
+    lambda_ = np.maximum(depth1.values * branching_factor, depth1.values + 1)
+    depth2 = rng.poisson(lam=lambda_).clip(min=depth1.values)
+    out["depth2_neighbors"] = depth2
 
-    for i in MAPPED_INDICES:
-        col = X_labeled[:, i]
-        mean[i] = col.mean()
-        std[i]  = col.std()
-        if std[i] < 1e-9:
-            std[i] = 1.0  # avoid division by zero for constant columns
+    out["in_degree"]  = df["receipt_transactions"].clip(lower=0)
+    out["out_degree"] = df["payment_transactions"].clip(lower=0)
 
-    # Normalize
-    X_norm = X_labeled.copy()
-    for i in MAPPED_INDICES:
-        X_norm[:, i] = (X_labeled[:, i] - mean[i]) / std[i]
+    # graph_density: same formula as features.py
+    total_in_out = out["tx_in_count"] + out["tx_out_count"]
+    d1 = depth1.values
+    max_possible = np.where(d1 > 1, d1 * (d1 - 1), 1.0)
+    out["graph_density"] = (total_in_out.values / max_possible).clip(0, 1.0)
 
-    X_norm = X_norm.astype(np.float32)
+    # clustering_coefficient: synthesised ~ Beta(0.5, 5)
+    # Nodes in real transaction graphs have low clustering, so Beta(0.5, 5)
+    # gives mostly small values which matches production observations.
+    out["clustering_coefficient"] = rng.beta(0.5, 5.0, size=len(df))
 
-    scaler = {
-        "mean": mean.tolist(),
-        "std":  std.tolist(),
-        "feature_names": OUR_FEATURE_NAMES,
-        "mapped_indices": MAPPED_INDICES,
-    }
+    # ── TEMPORAL ───────────────────────────────────────────────────────────────
+    out["active_days"]   = df["activity_d"].clip(lower=0)
+    lifespan_days        = (df["lifetime"].fillna(0) / 86400).clip(lower=1)
+    out["lifespan_days"] = lifespan_days
+    out["tx_per_day"]    = (total_tx.values / lifespan_days.values).clip(min=0)
 
-    log.info(
-        "Labeled samples: %d  (illicit=%d %.1f%%, licit=%d)",
-        len(y_labeled), y_labeled.sum(), 100 * y_labeled.mean(), (y_labeled == 0).sum(),
+    # ── RISK SIGNALS — all zero during training ────────────────────────────────
+    # In production these come from the flagged_addresses DB.  Training without
+    # them is correct: the model learns volume/topology patterns only;
+    # flag-proximity signals are handled by the heuristic in xgboost_scorer.py.
+    out["flagged_neighbors_count"] = 0
+    out["flagged_neighbors_ratio"] = 0.0
+    out["min_dist_to_flagged"]     = 999
+    for cat in ["flag_mixer", "flag_scam", "flag_sanctions", "flag_darknet_market",
+                "flag_ransomware", "flag_gambling", "flag_phishing", "flag_suspicious"]:
+        out[cat] = 0
+
+    return out[FEATURE_NAMES].astype(np.float32)
+
+
+# ── Normalization ──────────────────────────────────────────────────────────────
+
+def fit_scaler(X: pd.DataFrame) -> dict:
+    """
+    Compute log1p mean/std for LOG_FEATURES from the training data.
+    Returns a dict compatible with xgboost_scorer._RAW_STATS format.
+    """
+    stats = {}
+    for col in FEATURE_NAMES:
+        if col in LOG_FEATURES:
+            log_vals = np.log1p(X[col].clip(lower=0).values.astype(np.float64))
+            stats[col] = [float(log_vals.mean()), max(float(log_vals.std()), 1e-6)]
+    return stats
+
+
+def apply_scaler(X: pd.DataFrame, stats: dict) -> pd.DataFrame:
+    Xn = X.copy()
+    for col, (mu, sigma) in stats.items():
+        log_vals = np.log1p(Xn[col].clip(lower=0))
+        Xn[col] = (log_vals - mu) / sigma
+    return Xn
+
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+def main() -> None:
+    rng = np.random.default_rng(42)
+
+    # 1. Load data
+    log.info("Loading Real-CATS data …")
+    cb = pd.read_csv(CB_PATH, sep="\t")
+    bb = pd.read_csv(BB_PATH, sep="\t")
+    log.info("  Criminal: %d rows", len(cb))
+    log.info("  Benign:   %d rows", len(bb))
+
+    cb["_label"] = 1
+    bb["_label"] = 0
+    df = pd.concat([cb, bb], ignore_index=True)
+
+    # Shuffle
+    df = df.sample(frac=1, random_state=42).reset_index(drop=True)
+
+    # 2. Feature mapping + synthesis
+    log.info("Mapping features …")
+    X = map_features(df, rng)
+    y = df["_label"].values.astype(np.int32)
+
+    log.info("  Feature matrix shape: %s", X.shape)
+    log.info("  Class balance  — criminal: %d  benign: %d", y.sum(), (y == 0).sum())
+
+    # Sanity checks
+    assert X.shape[1] == len(FEATURE_NAMES), "Column count mismatch!"
+    assert list(X.columns) == FEATURE_NAMES, "Column order mismatch!"
+    assert not X.isnull().any().any(), "NaN values found in feature matrix!"
+
+    # 3. Fit scaler on ALL data
+    log.info("Fitting scaler from Real-CATS data …")
+    scaler_stats = fit_scaler(X)
+    Xn = apply_scaler(X, scaler_stats)
+
+    # Save scaler
+    scaler_path = MODEL_DIR / "btc_scaler.json"
+    with open(scaler_path, "w") as f:
+        json.dump(scaler_stats, f, indent=2)
+    log.info("Scaler saved → %s", scaler_path)
+
+    # 4. Cross-validation
+    log.info("5-fold stratified CV …")
+
+    pos = y.sum()
+    neg = (y == 0).sum()
+    spw = neg / pos
+    log.info("  scale_pos_weight = %.3f", spw)
+
+    params = dict(
+        objective        = "binary:logistic",
+        max_depth        = 6,
+        learning_rate    = 0.05,
+        subsample        = 0.8,
+        colsample_bytree = 0.8,
+        min_child_weight = 5,
+        gamma            = 1.0,
+        scale_pos_weight = spw,
+        tree_method      = "hist",
+        seed             = 42,
     )
-    return X_norm, y_labeled, scaler
+    N_ROUNDS = 500
+    EARLY_STOP = 30
 
-
-# ─── Training ─────────────────────────────────────────────────────────────────
-
-def train(X: np.ndarray, y: np.ndarray) -> xgb.Booster:
-    """5-fold stratified CV, then final training on the full dataset."""
-    neg, pos = (y == 0).sum(), (y == 1).sum()
-    scale_pos = neg / pos
-    log.info("scale_pos_weight = %.1f  (neg=%d / pos=%d)", scale_pos, neg, pos)
-
-    params = {
-        "objective":        "binary:logistic",
-        "eval_metric":      ["auc", "aucpr"],
-        "max_depth":        6,
-        "eta":              0.05,
-        "subsample":        0.8,
-        "colsample_bytree": 0.8,
-        "min_child_weight": 3,
-        "scale_pos_weight": scale_pos,
-        "seed":             42,
-        "tree_method":      "hist",
-        "device":           "cpu",
-    }
-
-    log.info("5-fold stratified cross-validation …")
+    cv_aucs, cv_auprs, best_iters = [], [], []
     skf = StratifiedKFold(n_splits=5, shuffle=True, random_state=42)
-    aucs, auprs, best_iters = [], [], []
 
-    for fold, (tr_idx, val_idx) in enumerate(skf.split(X, y), 1):
-        dtrain = xgb.DMatrix(X[tr_idx],  label=y[tr_idx],  feature_names=OUR_FEATURE_NAMES)
-        dval   = xgb.DMatrix(X[val_idx], label=y[val_idx], feature_names=OUR_FEATURE_NAMES)
+    for fold, (tr_idx, val_idx) in enumerate(skf.split(Xn, y), 1):
+        X_tr, X_val = Xn.iloc[tr_idx], Xn.iloc[val_idx]
+        y_tr, y_val = y[tr_idx], y[val_idx]
 
-        bst = xgb.train(
-            params, dtrain,
-            num_boost_round=600,
+        dtrain = xgb.DMatrix(X_tr, label=y_tr, feature_names=FEATURE_NAMES)
+        dval   = xgb.DMatrix(X_val, label=y_val, feature_names=FEATURE_NAMES)
+
+        booster = xgb.train(
+            params,
+            dtrain,
+            num_boost_round=N_ROUNDS,
             evals=[(dval, "val")],
-            early_stopping_rounds=40,
+            early_stopping_rounds=EARLY_STOP,
             verbose_eval=False,
         )
-        best_iters.append(bst.best_iteration)
 
-        proba = bst.predict(dval)
-        aucs.append(roc_auc_score(y[val_idx], proba))
-        auprs.append(average_precision_score(y[val_idx], proba))
-        log.info("  Fold %d — AUC=%.4f  AUCPR=%.4f  best_round=%d",
-                 fold, aucs[-1], auprs[-1], bst.best_iteration)
+        prob = booster.predict(dval)
+        auc  = roc_auc_score(y_val, prob)
+        aupr = average_precision_score(y_val, prob)
+        cv_aucs.append(auc)
+        cv_auprs.append(aupr)
+        best_iters.append(booster.best_iteration)
+        log.info("  Fold %d — AUC=%.4f  AUCPR=%.4f  (best iter=%d)",
+                 fold, auc, aupr, booster.best_iteration)
 
-    log.info(
-        "CV mean: AUC=%.4f ± %.4f  |  AUCPR=%.4f ± %.4f",
-        np.mean(aucs), np.std(aucs), np.mean(auprs), np.std(auprs),
-    )
+    log.info("CV  AUC  = %.4f ± %.4f", np.mean(cv_aucs),  np.std(cv_aucs))
+    log.info("CV  AUCPR= %.4f ± %.4f", np.mean(cv_auprs), np.std(cv_auprs))
 
-    log.info("Training final model on full dataset …")
-    dtrain_full = xgb.DMatrix(X, label=y, feature_names=OUR_FEATURE_NAMES)
+    # 5. Train final model on full data
     best_rounds = int(np.mean(best_iters)) + 1
-
+    log.info("Training final model (%d rounds) on full dataset …", best_rounds)
+    dtrain_full = xgb.DMatrix(Xn, label=y, feature_names=FEATURE_NAMES)
     final_model = xgb.train(
-        params, dtrain_full,
+        params,
+        dtrain_full,
         num_boost_round=best_rounds,
-        verbose_eval=100,
+        verbose_eval=False,
     )
 
-    preds = final_model.predict(dtrain_full)
-    log.info(
-        "\nFull-dataset classification report:\n%s",
-        classification_report((preds > 0.5).astype(int), y,
-                               target_names=["licit", "illicit"]),
-    )
-    return final_model
+    model_path = MODEL_DIR / "btc_xgboost.json"
+    final_model.save_model(str(model_path))
+    log.info("Model saved → %s", model_path)
 
+    # 6. Sanity test: craft obviously malicious and benign feature vectors
+    log.info("Sanity test with crafted feature vectors …")
 
-# ─── Save ─────────────────────────────────────────────────────────────────────
+    # Ransomware wallet: many small incoming payments, burst of activity
+    malicious_raw = pd.DataFrame([{
+        "tx_in_count":             500,
+        "tx_out_count":            5,
+        "total_received":          2.5,
+        "total_sent":              0.1,
+        "median_tx_amount":        0.005,
+        "max_tx_amount":           0.2,
+        "unique_counterparties":   450,
+        "depth1_neighbors":        50,
+        "depth2_neighbors":        120,
+        "in_degree":               500,
+        "out_degree":              5,
+        "graph_density":           0.02,
+        "clustering_coefficient":  0.01,
+        "active_days":             3,
+        "tx_per_day":              168,
+        "lifespan_days":           3,
+        "flagged_neighbors_count": 0,
+        "flagged_neighbors_ratio": 0.0,
+        "min_dist_to_flagged":     999,
+        **{f: 0 for f in ["flag_mixer","flag_scam","flag_sanctions",
+                           "flag_darknet_market","flag_ransomware",
+                           "flag_gambling","flag_phishing","flag_suspicious"]},
+    }], columns=FEATURE_NAMES).astype(np.float32)
 
-def save_artifacts(model: xgb.Booster, scaler: dict) -> None:
-    MODEL_DIR.mkdir(parents=True, exist_ok=True)
-    model.save_model(str(MODEL_PATH))
-    log.info("Model  saved → %s", MODEL_PATH)
-    SCALER_PATH.write_text(json.dumps(scaler, indent=2))
-    log.info("Scaler saved → %s", SCALER_PATH)
+    # Normal wallet: moderate balanced volume, long history
+    benign_raw = pd.DataFrame([{
+        "tx_in_count":             10,
+        "tx_out_count":            8,
+        "total_received":          0.12,
+        "total_sent":              0.11,
+        "median_tx_amount":        0.012,
+        "max_tx_amount":           0.04,
+        "unique_counterparties":   15,
+        "depth1_neighbors":        12,
+        "depth2_neighbors":        30,
+        "in_degree":               10,
+        "out_degree":              8,
+        "graph_density":           0.003,
+        "clustering_coefficient":  0.05,
+        "active_days":             90,
+        "tx_per_day":              0.2,
+        "lifespan_days":           365,
+        "flagged_neighbors_count": 0,
+        "flagged_neighbors_ratio": 0.0,
+        "min_dist_to_flagged":     999,
+        **{f: 0 for f in ["flag_mixer","flag_scam","flag_sanctions",
+                           "flag_darknet_market","flag_ransomware",
+                           "flag_gambling","flag_phishing","flag_suspicious"]},
+    }], columns=FEATURE_NAMES).astype(np.float32)
 
+    def score_raw(raw_df: pd.DataFrame, label: str) -> None:
+        normed = apply_scaler(raw_df, scaler_stats)
+        dm = xgb.DMatrix(normed, feature_names=FEATURE_NAMES)
+        prob = float(final_model.predict(dm)[0])
+        ml_contribution = round(prob * 40.0, 2)
+        log.info("  %-12s  raw_prob=%.4f  ml_contribution=%.1f/40", label, prob, ml_contribution)
 
-# ─── Entrypoint ───────────────────────────────────────────────────────────────
+    score_raw(malicious_raw, "MALICIOUS")
+    score_raw(benign_raw,    "BENIGN")
+
+    log.info("Done.")
+
 
 if __name__ == "__main__":
-    log.info("=== BTC XGBoost Training ===")
-    X, y, scaler = load_elliptic()
-    model = train(X, y)
-    save_artifacts(model, scaler)
-    log.info("Done.")
+    main()

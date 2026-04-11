@@ -3,22 +3,13 @@ XGBoost scorer for Bitcoin.
 
 Architecture: hybrid scoring.
   1. FLAG SIGNAL  — heuristic weights applied to DB-sourced flag features.
-                    This is the dominant signal (sanctions +40, mixer +30, …).
-  2. VOLUME SIGNAL — XGBoost model trained on Elliptic Dataset adds a
+                    This is the dominant signal (sanctions +35, mixer +25, …).
+  2. VOLUME SIGNAL — XGBoost model trained on Real-CATS dataset adds a
                     continuous score based on volume/topology patterns.
-
-Why hybrid?
-  The Elliptic Dataset features are pre-normalized (z-scored) by the authors.
-  We cannot recover the original normalization statistics, so raw AddressFeatures
-  values (BTC amounts, counts) cannot be mapped to the exact Elliptic z-score
-  space. Instead we apply log1p + approximate normalization to map raw values
-  to a comparable range, and cap the XGBoost contribution at 40 points.
-  Flag features — which are always 0 in Elliptic — are handled by the heuristic
-  and reliably dominate when ground-truth labels are present in our DB.
 
 Model files (produced by training/train_btc.py):
   models/btc_xgboost.json  — trained Booster
-  models/btc_scaler.json   — Elliptic feature statistics (mean/std)
+  models/btc_scaler.json   — log1p mean/std per feature (computed from Real-CATS)
 """
 
 import json
@@ -32,14 +23,12 @@ from app.scoring.base import BaseScorer, ScoreResult, score_to_risk_level
 
 logger = logging.getLogger(__name__)
 
-# Approximate raw BTC statistics for log-normalization at inference.
-# Source: public Bitcoin network averages (Blockchain.com, Coin Metrics).
-# These map raw values into a roughly [-2, 4] range comparable to Elliptic z-scores.
-_RAW_STATS: dict[str, tuple[float, float]] = {
-    # (approx_mean, approx_std) for log1p(raw_value)
-    "tx_in_count":           (0.7,  0.6),   # log1p(~1-2 typical inputs)
+# Scaler stats are loaded from btc_scaler.json (produced by train_btc.py).
+# Fallback hardcoded stats are used only if the file is missing.
+_FALLBACK_RAW_STATS: dict[str, tuple[float, float]] = {
+    "tx_in_count":           (0.7,  0.6),
     "tx_out_count":          (0.9,  0.7),
-    "total_received":        (0.5,  1.5),   # log1p(BTC amounts)
+    "total_received":        (0.5,  1.5),
     "total_sent":            (0.5,  1.5),
     "median_tx_amount":      (0.1,  0.8),
     "max_tx_amount":         (0.3,  1.2),
@@ -50,8 +39,10 @@ _RAW_STATS: dict[str, tuple[float, float]] = {
     "out_degree":            (0.9,  0.7),
 }
 
+_RAW_STATS: dict[str, tuple[float, float]] = {}   # populated in _load()
+
 # Features that get log1p + z-score normalization at inference
-_LOG_FEATURES = set(_RAW_STATS.keys())
+_LOG_FEATURES = set(_FALLBACK_RAW_STATS.keys())
 
 
 class XGBoostBitcoinScorer(BaseScorer):
@@ -66,6 +57,24 @@ class XGBoostBitcoinScorer(BaseScorer):
         self._load(model_path)
 
     def _load(self, model_path: str) -> None:
+        global _RAW_STATS
+
+        # Load scaler stats from btc_scaler.json (same directory as model)
+        scaler_file = Path(model_path).parent / "btc_scaler.json"
+        if scaler_file.exists():
+            try:
+                with open(scaler_file) as f:
+                    loaded = json.load(f)
+                # btc_scaler.json stores {feature: [mean, std]}
+                _RAW_STATS = {k: tuple(v) for k, v in loaded.items()}
+                logger.info("Scaler loaded from '%s'", scaler_file)
+            except Exception as exc:
+                logger.warning("Could not load scaler: %s — using fallback stats", exc)
+                _RAW_STATS = dict(_FALLBACK_RAW_STATS)
+        else:
+            logger.warning("btc_scaler.json not found — using fallback normalization stats")
+            _RAW_STATS = dict(_FALLBACK_RAW_STATS)
+
         model_file = Path(model_path)
         if not model_file.exists():
             logger.warning(
