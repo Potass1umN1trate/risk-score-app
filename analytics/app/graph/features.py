@@ -40,6 +40,19 @@ FLAG_CATEGORIES = [
     "suspicious",
 ]
 
+# Canonical feature names in the exact order of AddressFeatures fields.
+# Used by the XGBoost scorer to build a named DMatrix.
+OUR_FEATURE_NAMES = [
+    "tx_in_count", "tx_out_count", "total_received", "total_sent",
+    "median_tx_amount", "max_tx_amount", "unique_counterparties",
+    "depth1_neighbors", "depth2_neighbors", "in_degree", "out_degree",
+    "graph_density", "clustering_coefficient",
+    "active_days", "tx_per_day", "lifespan_days",
+    "flagged_neighbors_count", "flagged_neighbors_ratio", "min_dist_to_flagged",
+    "flag_mixer", "flag_scam", "flag_sanctions", "flag_darknet_market",
+    "flag_ransomware", "flag_gambling", "flag_phishing", "flag_suspicious",
+]
+
 
 @dataclass
 class AddressFeatures:

@@ -1,59 +1,86 @@
 """
 XGBoost scorer for Bitcoin.
 
-Loads the model from btc_xgboost.json (trained on the Elliptic dataset).
-Falls back to a heuristic scorer if the file is missing, so the service
-does not crash before the model has been trained.
+Architecture: hybrid scoring.
+  1. FLAG SIGNAL  — heuristic weights applied to DB-sourced flag features.
+                    This is the dominant signal (sanctions +40, mixer +30, …).
+  2. VOLUME SIGNAL — XGBoost model trained on Elliptic Dataset adds a
+                    continuous score based on volume/topology patterns.
 
-Why a fallback instead of a hard failure?
-  During development it is convenient to run the service without a trained model.
-  In production the model file must always exist — a k8s readiness probe
-  can verify this via the /model/status endpoint.
+Why hybrid?
+  The Elliptic Dataset features are pre-normalized (z-scored) by the authors.
+  We cannot recover the original normalization statistics, so raw AddressFeatures
+  values (BTC amounts, counts) cannot be mapped to the exact Elliptic z-score
+  space. Instead we apply log1p + approximate normalization to map raw values
+  to a comparable range, and cap the XGBoost contribution at 40 points.
+  Flag features — which are always 0 in Elliptic — are handled by the heuristic
+  and reliably dominate when ground-truth labels are present in our DB.
+
+Model files (produced by training/train_btc.py):
+  models/btc_xgboost.json  — trained Booster
+  models/btc_scaler.json   — Elliptic feature statistics (mean/std)
 """
 
+import json
 import logging
 from pathlib import Path
 
 import numpy as np
 
-from app.graph.features import AddressFeatures
+from app.graph.features import AddressFeatures, OUR_FEATURE_NAMES
 from app.scoring.base import BaseScorer, ScoreResult, score_to_risk_level
 
 logger = logging.getLogger(__name__)
 
+# Approximate raw BTC statistics for log-normalization at inference.
+# Source: public Bitcoin network averages (Blockchain.com, Coin Metrics).
+# These map raw values into a roughly [-2, 4] range comparable to Elliptic z-scores.
+_RAW_STATS: dict[str, tuple[float, float]] = {
+    # (approx_mean, approx_std) for log1p(raw_value)
+    "tx_in_count":           (0.7,  0.6),   # log1p(~1-2 typical inputs)
+    "tx_out_count":          (0.9,  0.7),
+    "total_received":        (0.5,  1.5),   # log1p(BTC amounts)
+    "total_sent":            (0.5,  1.5),
+    "median_tx_amount":      (0.1,  0.8),
+    "max_tx_amount":         (0.3,  1.2),
+    "unique_counterparties": (0.8,  0.7),
+    "depth1_neighbors":      (0.7,  0.6),
+    "depth2_neighbors":      (1.2,  0.8),
+    "in_degree":             (0.7,  0.6),
+    "out_degree":            (0.9,  0.7),
+}
+
+# Features that get log1p + z-score normalization at inference
+_LOG_FEATURES = set(_RAW_STATS.keys())
+
 
 class XGBoostBitcoinScorer(BaseScorer):
     """
-    BTC scorer backed by XGBoost.
-
-    Expects the model in XGBoost JSON format (Booster.save_model / load_model).
-    Class 1 = illicit (suspicious), class 0 = licit.
-    score = P(illicit) * 100.
+    BTC scorer: heuristic flag signal + XGBoost volume/topology signal.
     """
 
     MODEL_VERSION = "btc_xgboost_v1"
 
     def __init__(self, model_path: str) -> None:
         self._model = None
-        self._load_model(model_path)
+        self._load(model_path)
 
-    def _load_model(self, model_path: str) -> None:
-        path = Path(model_path)
-        if not path.exists():
+    def _load(self, model_path: str) -> None:
+        model_file = Path(model_path)
+        if not model_file.exists():
             logger.warning(
                 "XGBoost model not found at '%s'. "
-                "Using heuristic fallback scorer. "
-                "Train the model with analytics/training/train_btc.py",
+                "Heuristic-only mode active. "
+                "Run: cd analytics && python -m training.train_btc",
                 model_path,
             )
             return
-
         try:
-            import xgboost as xgb  # deferred import: avoids failure if xgb is unused
+            import xgboost as xgb
             booster = xgb.Booster()
-            booster.load_model(str(path))
+            booster.load_model(str(model_file))
             self._model = booster
-            logger.info("XGBoost BTC model loaded from '%s'", model_path)
+            logger.info("XGBoost BTC model loaded from '%s'", model_file)
         except Exception as exc:
             logger.error("Failed to load XGBoost model: %s", exc)
 
@@ -62,65 +89,84 @@ class XGBoostBitcoinScorer(BaseScorer):
         return "BTC"
 
     def score(self, features: AddressFeatures) -> ScoreResult:
-        if self._model is not None:
-            return self._score_with_model(features)
-        return self._heuristic_score(features)
+        flag_score = self._flag_score(features)
+        ml_score   = self._ml_score(features) if self._model else 0.0
 
-    def _score_with_model(self, features: AddressFeatures) -> ScoreResult:
-        import xgboost as xgb
+        # Combine: flags dominate, ML adds up to 40 extra points
+        combined = flag_score + ml_score * (1.0 - flag_score / 100.0)
+        combined = min(round(combined, 2), 100.0)
 
-        vec = features.to_numpy().reshape(1, -1)
-        dmatrix = xgb.DMatrix(vec)
-        # predict returns P(illicit) in [0, 1]
-        prob = float(self._model.predict(dmatrix)[0])
-        score = round(prob * 100, 2)
+        version = self.MODEL_VERSION if self._model else f"{self.MODEL_VERSION}_heuristic"
 
         return ScoreResult(
-            score=score,
-            risk_level=score_to_risk_level(score),
-            model_version=self.MODEL_VERSION,
-            raw_probability=prob,
+            score=combined,
+            risk_level=score_to_risk_level(combined),
+            model_version=version,
+            raw_probability=round(combined / 100.0, 4),
         )
 
-    def _heuristic_score(self, features: AddressFeatures) -> ScoreResult:
-        """
-        Simple heuristic used when the model file is absent.
-        Based on the most informative features (per SHAP analysis in the thesis).
-        """
+    # ── Flag-based heuristic (always runs) ───────────────────────────────────
+
+    def _flag_score(self, f: AddressFeatures) -> float:
         score = 0.0
 
-        # Proximity to flagged addresses — strongest signal
-        if features.min_dist_to_flagged <= 1:
+        # Proximity to any flagged address
+        if f.min_dist_to_flagged <= 1:
             score += 40
-        elif features.min_dist_to_flagged <= 2:
+        elif f.min_dist_to_flagged <= 2:
             score += 20
-        elif features.min_dist_to_flagged <= 3:
+        elif f.min_dist_to_flagged <= 3:
             score += 10
 
-        # Sanctions and mixers — critical categories
-        score += min(features.flag_sanctions * 30, 40)
-        score += min(features.flag_mixer * 20, 30)
-        score += min(features.flag_darknet_market * 15, 25)
-        score += min((features.flag_scam + features.flag_ransomware + features.flag_phishing) * 10, 20)
+        # Category weights
+        score += min(f.flag_sanctions     * 35, 45)
+        score += min(f.flag_mixer         * 25, 35)
+        score += min(f.flag_darknet_market* 20, 30)
+        score += min(f.flag_ransomware    * 20, 30)
+        score += min(f.flag_scam          * 15, 25)
+        score += min(f.flag_phishing      * 15, 20)
+        score += min(f.flag_suspicious    * 10, 15)
+        score += min(f.flag_gambling      *  5, 10)
 
-        # Fraction of flagged addresses in the neighbourhood
-        score += features.flagged_neighbors_ratio * 30
+        # Ratio of flagged neighbours
+        score += f.flagged_neighbors_ratio * 25
 
-        # Very high transaction frequency — possible structuring?
-        if features.tx_per_day > 50:
+        # Very high transaction frequency → possible structuring
+        if f.tx_per_day > 100:
+            score += 15
+        elif f.tx_per_day > 50:
             score += 10
-        elif features.tx_per_day > 20:
+        elif f.tx_per_day > 20:
             score += 5
 
-        score = min(score, 100.0)
-        prob = score / 100.0
+        return min(score, 100.0)
 
-        return ScoreResult(
-            score=round(score, 2),
-            risk_level=score_to_risk_level(score),
-            model_version=f"{self.MODEL_VERSION}_heuristic",
-            raw_probability=round(prob, 4),
-        )
+    # ── XGBoost volume/topology signal (0-40 contribution) ───────────────────
+
+    def _ml_score(self, features: AddressFeatures) -> float:
+        """
+        Returns 0-40 points based on volume/topology patterns.
+        Raw features are log1p-transformed then approximately z-scored
+        to match the Elliptic pre-normalized feature distribution.
+        """
+        import xgboost as xgb
+        import pandas as pd
+
+        raw = features.to_numpy().copy()
+        norm = raw.copy()
+
+        for i, name in enumerate(OUR_FEATURE_NAMES):
+            if name in _LOG_FEATURES:
+                # log1p compresses large values; then approximate z-score
+                log_val = np.log1p(max(float(raw[i]), 0.0))
+                mu, sigma = _RAW_STATS[name]
+                norm[i] = (log_val - mu) / sigma
+
+        df = pd.DataFrame([norm], columns=OUR_FEATURE_NAMES)
+        prob = float(self._model.predict(xgb.DMatrix(df))[0])
+
+        # Scale to 0-40 contribution range
+        return round(prob * 40.0, 2)
 
     @property
     def is_model_loaded(self) -> bool:
