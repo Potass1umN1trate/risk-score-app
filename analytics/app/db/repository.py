@@ -26,6 +26,55 @@ async def _get_network_id(pool: asyncpg.Pool, network_code: str) -> int | None:
     return row["id"] if row else None
 
 
+# ─── Single address lookup (step 7 in the flowchart) ─────────────────────────
+
+async def get_address_flag(
+    pool: asyncpg.Pool,
+    address: str,
+) -> dict | None:
+    """
+    Check whether the root address itself is in the flagged_addresses table.
+
+    Returns a dict with keys {risk_level, flag_type, category_severity}
+    if found and active, otherwise None.
+
+    This is the fast-path: if the key address is already known-bad,
+    we skip ML entirely and return the stored classification.
+    """
+    row = await pool.fetchrow(
+        """
+        SELECT rc.code      AS flag_type,
+               rc.severity  AS category_severity
+        FROM   flagged_addresses fa
+        JOIN   risk_categories   rc ON rc.id = fa.risk_category_id
+        WHERE  fa.address   = $1
+          AND  fa.is_active = true
+        ORDER BY rc.severity DESC
+        LIMIT 1
+        """,
+        address,
+    )
+    if row is None:
+        return None
+
+    severity = row["category_severity"]   # 0-100
+    if severity >= 85:
+        risk_level = "CRITICAL"
+    elif severity >= 60:
+        risk_level = "HIGH"
+    elif severity >= 25:
+        risk_level = "MEDIUM"
+    else:
+        risk_level = "LOW"
+
+    return {
+        "flag_type":          row["flag_type"],
+        "category_severity":  severity,
+        "risk_level":         risk_level,
+        "risk_score":         float(severity),
+    }
+
+
 # ─── Flagged address lookup ───────────────────────────────────────────────────
 
 async def get_flagged_addresses(
@@ -67,9 +116,10 @@ async def save_analysis(
     root_address: str,
     network_code: str,
     graph_result: GraphResult,
-    features: AddressFeatures,
+    features: AddressFeatures | None,   # None when scoring_method == "database"
     score_result: ScoreResult,
     flagged: dict[str, list[str]],
+    scoring_method: str = "ml_model",   # "database" | "ml_model"
 ) -> str:
     """
     Saves the full analysis result to the database in a single transaction.
@@ -80,9 +130,10 @@ async def save_analysis(
 
     # factors_json stores features + model metadata
     factors_json = {
+        "scoring_method": scoring_method,
         "model_version": score_result.model_version,
         "raw_probability": score_result.raw_probability,
-        "features": features.to_dict(),
+        "features": features.to_dict() if features else {},
     }
 
     async with pool.acquire() as conn:
@@ -174,16 +225,17 @@ async def save_analysis(
                     edge_rows,
                 )
 
-            # 4. Feature vector (separate table for ML replay)
-            await conn.execute(
-                """
-                INSERT INTO analysis_features (id, result_id, features_json)
-                VALUES ($1, $2, $3::jsonb)
-                """,
-                str(uuid.uuid4()),
-                result_id,
-                json.dumps(features.to_dict()),
-            )
+            # 4. Feature vector — only saved when ML path was taken
+            if features is not None:
+                await conn.execute(
+                    """
+                    INSERT INTO analysis_features (id, result_id, features_json)
+                    VALUES ($1, $2, $3::jsonb)
+                    """,
+                    str(uuid.uuid4()),
+                    result_id,
+                    json.dumps(features.to_dict()),
+                )
 
     return result_id
 
