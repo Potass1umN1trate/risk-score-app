@@ -139,9 +139,14 @@ def map_features(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     )
 
     # ── TOPOLOGY ───────────────────────────────────────────────────────────────
+    # depth1_neighbors = unique counterparties at hop distance 1.
+    # received_counters + sent_counters gives exactly that: how many distinct
+    # addresses have ever sent to or received from this address.
+    # (total_input_slots / total_output_slots count transaction slots, not
+    # unique addresses, so they overcount when one tx has many outputs.)
     depth1 = (
-        df["total_input_slots"].fillna(0).clip(lower=0)
-        + df["total_output_slots"].fillna(0).clip(lower=0)
+        df["received_counters"].fillna(0).clip(lower=0)
+        + df["sent_counters"].fillna(0).clip(lower=0)
     ).clip(lower=1)
     out["depth1_neighbors"] = depth1
 
