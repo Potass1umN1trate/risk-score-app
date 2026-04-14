@@ -92,7 +92,7 @@ class BitcoinFetcher(BlockchainFetcher):
             output_map = [
                 (
                     out.get("scriptpubkey_address"),
-                    (out.get("value") or 0) / 1e8,  # satoshi → BTC
+                    out.get("value") or 0,  # satoshi (native Bitcoin unit)
                 )
                 for out in outputs
                 if out.get("scriptpubkey_address")
@@ -100,8 +100,8 @@ class BitcoinFetcher(BlockchainFetcher):
 
             our_address_is_sender = address in input_addresses
 
-            for to_addr, btc_amount in output_map:
-                if not to_addr or btc_amount == 0:
+            for to_addr, satoshi_amount in output_map:
+                if not to_addr or satoshi_amount == 0:
                     continue
 
                 if our_address_is_sender:
@@ -125,7 +125,7 @@ class BitcoinFetcher(BlockchainFetcher):
                     tx_hash=txid,
                     from_address=from_addr,
                     to_address=to_addr,
-                    amount=round(btc_amount, 8),
+                    amount=satoshi_amount,
                     timestamp=timestamp,
                 ))
 

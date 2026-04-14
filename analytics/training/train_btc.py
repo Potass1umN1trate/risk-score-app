@@ -106,7 +106,6 @@ LOG_FEATURES = {
     "depth1_neighbors", "depth2_neighbors", "in_degree", "out_degree",
 }
 
-SATOSHI = 1e8   # 1 BTC = 1e8 satoshi
 
 
 # ── Feature engineering ────────────────────────────────────────────────────────
@@ -122,17 +121,16 @@ def map_features(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     out["tx_in_count"]  = df["receipt_transactions"].clip(lower=0)
     out["tx_out_count"] = df["payment_transactions"].clip(lower=0)
 
-    # satoshi → BTC
-    out["total_received"] = (df["total_received_BTC"] / SATOSHI).clip(lower=0)
-    out["total_sent"]     = (df["total_sent_BTC"]     / SATOSHI).clip(lower=0)
+    out["total_received"] = df["total_received_BTC"].clip(lower=0)
+    out["total_sent"]     = df["total_sent_BTC"].clip(lower=0)
 
     total_tx = df["transaction_number"].clip(lower=1)
     out["median_tx_amount"] = (
-        (df["total_received_BTC"] + df["total_sent_BTC"]) / SATOSHI / total_tx
+        (df["total_received_BTC"] + df["total_sent_BTC"]) / total_tx
     ).clip(lower=0)
 
-    max_sent = df["max_sent_amount"].fillna(0).clip(lower=0) / SATOSHI
-    max_recv = df["max_received_amount"].fillna(0).clip(lower=0) / SATOSHI
+    max_sent = df["max_sent_amount"].fillna(0).clip(lower=0)
+    max_recv = df["max_received_amount"].fillna(0).clip(lower=0)
     out["max_tx_amount"] = np.maximum(max_sent, max_recv)
 
     out["unique_counterparties"] = (
@@ -327,13 +325,14 @@ def main() -> None:
     log.info("Sanity test with crafted feature vectors …")
 
     # Ransomware wallet: many small incoming payments, burst of activity
+    # Amounts in satoshi: 2.5 BTC = 250_000_000 sat, etc.
     malicious_raw = pd.DataFrame([{
         "tx_in_count":             500,
         "tx_out_count":            5,
-        "total_received":          2.5,
-        "total_sent":              0.1,
-        "median_tx_amount":        0.005,
-        "max_tx_amount":           0.2,
+        "total_received":          250_000_000,   # 2.5 BTC
+        "total_sent":              10_000_000,    # 0.1 BTC
+        "median_tx_amount":        500_000,       # 0.005 BTC
+        "max_tx_amount":           20_000_000,    # 0.2 BTC
         "unique_counterparties":   450,
         "depth1_neighbors":        50,
         "depth2_neighbors":        120,
@@ -353,13 +352,14 @@ def main() -> None:
     }], columns=FEATURE_NAMES).astype(np.float32)
 
     # Normal wallet: moderate balanced volume, long history
+    # Amounts in satoshi: 0.12 BTC = 12_000_000 sat, etc.
     benign_raw = pd.DataFrame([{
         "tx_in_count":             10,
         "tx_out_count":            8,
-        "total_received":          0.12,
-        "total_sent":              0.11,
-        "median_tx_amount":        0.012,
-        "max_tx_amount":           0.04,
+        "total_received":          12_000_000,    # 0.12 BTC
+        "total_sent":              11_000_000,    # 0.11 BTC
+        "median_tx_amount":        1_200_000,     # 0.012 BTC
+        "max_tx_amount":           4_000_000,     # 0.04 BTC
         "unique_counterparties":   15,
         "depth1_neighbors":        12,
         "depth2_neighbors":        30,
