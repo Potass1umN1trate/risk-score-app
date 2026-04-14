@@ -44,7 +44,7 @@ FLAG_CATEGORIES = [
 # Used by the XGBoost scorer to build a named DMatrix.
 OUR_FEATURE_NAMES = [
     "tx_in_count", "tx_out_count", "total_received", "total_sent",
-    "median_tx_amount", "max_tx_amount", "unique_counterparties",
+    "avg_tx_amount", "max_tx_amount", "unique_counterparties",
     "depth1_neighbors", "depth2_neighbors", "in_degree", "out_degree",
     "graph_density", "clustering_coefficient",
     "active_days", "tx_per_day", "lifespan_days",
@@ -67,7 +67,7 @@ class AddressFeatures:
     tx_out_count: int           # number of outgoing transactions
     total_received: float       # total incoming value (native currency)
     total_sent: float           # total outgoing value
-    median_tx_amount: float     # median amount across all transactions
+    avg_tx_amount: float     # median amount across all transactions
     max_tx_amount: float        # largest single transaction
     unique_counterparties: int  # number of unique counterparty addresses
 
@@ -136,7 +136,7 @@ def extract(
         [e["total_amount"] / e["tx_count"] for _, _, e in in_edges if e["tx_count"] > 0]
         + [e["total_amount"] / e["tx_count"] for _, _, e in out_edges if e["tx_count"] > 0]
     )
-    median_tx_amount = float(np.median(all_amounts)) if all_amounts else 0.0
+    avg_tx_amount = float(np.mean(all_amounts)) if all_amounts else 0.0
     max_tx_amount = float(max(all_amounts)) if all_amounts else 0.0
 
     counterparties = set()
@@ -227,7 +227,7 @@ def extract(
         tx_out_count=tx_out_count,
         total_received=round(total_received, 8),
         total_sent=round(total_sent, 8),
-        median_tx_amount=round(median_tx_amount, 8),
+        avg_tx_amount=round(avg_tx_amount, 8),
         max_tx_amount=round(max_tx_amount, 8),
         unique_counterparties=unique_counterparties,
         depth1_neighbors=depth1_neighbors,
