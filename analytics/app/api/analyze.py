@@ -246,11 +246,11 @@ async def list_networks():
 async def model_status():
     """Model load status (used by the k8s readiness probe)."""
     from app.scoring.registry import _REGISTRY
-    from app.scoring.xgboost_scorer import XGBoostBitcoinScorer
+    from app.scoring.xgboost_scorer import UniversalXGBoostScorer
 
     statuses = {}
     for code, scorer in _REGISTRY.items():
-        if isinstance(scorer, XGBoostBitcoinScorer):
+        if isinstance(scorer, UniversalXGBoostScorer):
             statuses[code] = "loaded" if scorer.is_model_loaded else "heuristic_fallback"
         else:
             statuses[code] = "loaded"

@@ -1,4 +1,3 @@
-import asyncio
 import logging
 
 import httpx
@@ -8,26 +7,26 @@ from .base import BlockchainFetcher, Transaction
 
 logger = logging.getLogger(__name__)
 
-_ETHERSCAN_URL = "https://api.etherscan.io/api"
-_BLOCKCHAIR_URL = "https://api.blockchair.com/ethereum/dashboards/address"
+_BSCSCAN_URL = "https://api.bscscan.com/api"
+_BLOCKCHAIR_URL = "https://api.blockchair.com/bnb/dashboards/address"
 _TIMEOUT = httpx.Timeout(15.0)
 
 
-class EthereumFetcher(BlockchainFetcher):
+class BNBFetcher(BlockchainFetcher):
     """
-    Fetches Ethereum transactions via Etherscan API v2.
-    Amount in wei (1 ETH = 1e18 wei).
+    Fetches BNB Smart Chain transactions via BscScan (Etherscan-compatible API v2, chainid=56).
+    Amount in wei (1 BNB = 1e18 wei).
     Fallback: Blockchair public API.
     """
 
     @property
     def network_code(self) -> str:
-        return "ETH"
+        return "BNB"
 
     async def fetch(self, address: str, limit: int = 50) -> list[Transaction]:
         async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
             raw_txs = await self._fetch_raw(client, address, limit)
-        return self._normalize(raw_txs, address)
+        return self._normalize(raw_txs)
 
     async def _fetch_raw(
         self,
@@ -49,14 +48,14 @@ class EthereumFetcher(BlockchainFetcher):
             if settings.etherscan_api_key:
                 params["apikey"] = settings.etherscan_api_key
 
-            resp = await client.get(_ETHERSCAN_URL, params=params)
+            resp = await client.get(_BSCSCAN_URL, params=params)
             resp.raise_for_status()
             data = resp.json()
             result = data.get("result") or []
             if isinstance(result, list):
                 return result[:limit]
         except Exception as exc:
-            logger.warning("Etherscan failed for %s: %s — trying Blockchair", address, exc)
+            logger.warning("BscScan failed for %s: %s — trying Blockchair", address, exc)
 
         try:
             resp = await client.get(f"{_BLOCKCHAIR_URL}/{address}")
@@ -65,16 +64,16 @@ class EthereumFetcher(BlockchainFetcher):
             txs = (data.get("data") or {}).get(address, {}).get("transactions") or []
             return [{"hash": t, "_blockchair": True} for t in txs[:limit]]
         except Exception as exc:
-            logger.error("Blockchair ETH also failed for %s: %s", address, exc)
+            logger.error("Blockchair BNB also failed for %s: %s", address, exc)
             return []
 
-    def _normalize(self, raw_txs: list[dict], address: str) -> list[Transaction]:
+    def _normalize(self, raw_txs: list[dict]) -> list[Transaction]:
         result: list[Transaction] = []
         seen: set[tuple] = set()
 
         for tx in raw_txs:
             if tx.get("_blockchair"):
-                continue  # Blockchair fallback returns only hashes — skip normalization
+                continue
 
             amount_wei = int(tx.get("value") or 0)
             if amount_wei == 0:

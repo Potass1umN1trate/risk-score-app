@@ -1,27 +1,26 @@
 """
-Scorer registry: network_code → BaseScorer instance.
+Scorer registry: network_code → UniversalXGBoostScorer instance.
 
-Mirrors blockchain/registry.py — one file, one line to add a new network.
+One model file, one scorer class, ten networks.
+To add a new network: add its code to the list below.
 """
 
 from app.config import settings
 from app.scoring.base import BaseScorer
-from app.scoring.xgboost_scorer import XGBoostBitcoinScorer
+from app.scoring.xgboost_scorer import UniversalXGBoostScorer
+
+_NETWORKS = ["BTC", "ETH", "TRX", "SOL", "BNB", "XRP", "LTC", "DOGE", "ADA", "TON"]
 
 _REGISTRY: dict[str, BaseScorer] = {
-    scorer.network_code: scorer
-    for scorer in [
-        XGBoostBitcoinScorer(model_path=settings.btc_model_path),
-        # EthereumScorer(),
-        # TronScorer(),
-    ]
+    code: UniversalXGBoostScorer(network_code=code, model_path=settings.model_path)
+    for code in _NETWORKS
 }
 
 
 def get_scorer(network_code: str) -> BaseScorer:
     scorer = _REGISTRY.get(network_code.upper())
     if scorer is None:
-        supported = ", ".join(_REGISTRY.keys())
+        supported = ", ".join(sorted(_REGISTRY.keys()))
         raise ValueError(
             f"No scorer for network: '{network_code}'. "
             f"Supported: {supported}"

@@ -77,16 +77,16 @@ data:
     );
 
     INSERT INTO networks (code, name) VALUES
-      ('BTC',   'Bitcoin'),
-      ('ETH',   'Ethereum'),
-      ('TRX',   'TRON'),
-      ('BNB',   'BNB Smart Chain'),
-      ('SOL',   'Solana'),
-      ('XRP',   'XRP Ledger'),
-      ('ADA',   'Cardano'),
-      ('MATIC', 'Polygon'),
-      ('AVAX',  'Avalanche'),
-      ('LTC',   'Litecoin')
+      ('BTC',  'Bitcoin'),
+      ('ETH',  'Ethereum'),
+      ('TRX',  'TRON'),
+      ('SOL',  'Solana'),
+      ('BNB',  'BNB Smart Chain'),
+      ('XRP',  'XRP Ledger'),
+      ('LTC',  'Litecoin'),
+      ('DOGE', 'Dogecoin'),
+      ('ADA',  'Cardano'),
+      ('TON',  'The Open Network')
     ON CONFLICT DO NOTHING;
 
     -- =============================================
