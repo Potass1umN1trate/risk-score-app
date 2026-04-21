@@ -42,7 +42,7 @@ class TronFetcher(BlockchainFetcher):
             resp = await client.get(
                 f"{_TRONGRID_URL}/{address}/transactions",
                 headers=headers,
-                params={"limit": min(limit, 200), "only_confirmed": "true"},
+                params={"limit": min(limit, 200)},
             )
             resp.raise_for_status()
             data = resp.json()

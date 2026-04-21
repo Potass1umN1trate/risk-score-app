@@ -64,16 +64,17 @@ class LitecoinFetcher(BlockchainFetcher):
                 continue
 
             tx_hash = tx.get("hash", "")
-            timestamp = int(tx.get("confirmed") or tx.get("received") or 0)
-            if isinstance(timestamp, str):
-                # ISO format from BlockCypher — convert roughly
+            raw_ts = tx.get("confirmed") or tx.get("received") or 0
+            if isinstance(raw_ts, str):
                 try:
                     from datetime import datetime, timezone
                     timestamp = int(datetime.fromisoformat(
-                        timestamp.replace("Z", "+00:00")
-                    ).timestamp())
+                        raw_ts.rstrip("Z").split(".")[0]
+                    ).replace(tzinfo=timezone.utc).timestamp())
                 except Exception:
                     timestamp = 0
+            else:
+                timestamp = int(raw_ts)
 
             inputs = tx.get("inputs") or []
             outputs = tx.get("outputs") or []

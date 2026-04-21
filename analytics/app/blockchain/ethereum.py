@@ -8,7 +8,8 @@ from .base import BlockchainFetcher, Transaction
 
 logger = logging.getLogger(__name__)
 
-_ETHERSCAN_URL = "https://api.etherscan.io/api"
+_ETHERSCAN_URL = "https://api.etherscan.io/v2/api"
+_ETHERSCAN_CHAIN_ID = 1
 _BLOCKCHAIR_URL = "https://api.blockchair.com/ethereum/dashboards/address"
 _TIMEOUT = httpx.Timeout(15.0)
 
@@ -37,6 +38,7 @@ class EthereumFetcher(BlockchainFetcher):
     ) -> list[dict]:
         try:
             params = {
+                "chainid": _ETHERSCAN_CHAIN_ID,
                 "module": "account",
                 "action": "txlist",
                 "address": address,
@@ -45,9 +47,8 @@ class EthereumFetcher(BlockchainFetcher):
                 "page": 1,
                 "offset": min(limit, 200),
                 "sort": "desc",
+                "apikey": settings.etherscan_api_key or "freekey",
             }
-            if settings.etherscan_api_key:
-                params["apikey"] = settings.etherscan_api_key
 
             resp = await client.get(_ETHERSCAN_URL, params=params)
             resp.raise_for_status()
