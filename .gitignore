@@ -11,10 +11,6 @@ build/
 venv/
 env/
 
-# ML models (large binary files — download/train locally)
-analytics/models/*.json
-analytics/models/*.bin
-
 # Training data
 analytics/training/data/
 
