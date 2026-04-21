@@ -32,6 +32,7 @@ from app.graph.features import extract as extract_features
 from app.scoring.registry import get_scorer
 from app.scoring.base import ScoreResult, score_to_risk_level
 from app.db import repository as repo
+from app.validators.address import validate_address
 
 logger = logging.getLogger(__name__)
 
@@ -45,6 +46,14 @@ class AnalyzeRequest(BaseModel):
     network: str = Field(..., description="Network code: BTC, ETH, TRX, …")
     depth: int = Field(default=2, ge=1, le=settings.max_depth)
     tx_limit: int = Field(default=50, ge=1, le=200)
+    # Contradiction B: analysis period — persisted and threaded through service layer.
+    # Blockchain fetchers do not yet enforce this server-side; see TODO in builder.py.
+    period_days: int | None = Field(
+        default=None,
+        ge=1,
+        le=3650,
+        description="Limit analysis to transactions within the last N days (optional).",
+    )
 
     @field_validator("network")
     @classmethod
@@ -104,21 +113,33 @@ async def analyze(body: AnalyzeRequest, request: Request) -> AnalyzeResponse:
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
+    # Contradiction C: validate address format before touching the DB or network
+    addr_check = validate_address(body.network, body.address)
+    if not addr_check.valid:
+        raise HTTPException(status_code=400, detail=addr_check.reason)
+
     request_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
+    # Contradiction D: user_id is nullable — extracted from request state when an
+    # auth layer populates it; falls back to None for anonymous/internal calls.
+    user_id: str | None = getattr(request.state, "user_id", None)
+
     # Step 3 — save request to DB
+    # Contradiction B: period_days persisted for future fetcher enforcement.
     await pool.execute(
         """
         INSERT INTO analysis_requests
-            (id, address, network_code, depth, limit_tx, status, created_at)
-        VALUES ($1, $2, $3, $4, $5, 'processing', $6)
+            (id, user_id, address, network_code, depth, limit_tx, period_days, status, created_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, 'processing', $8)
         """,
         request_id,
+        user_id,
         body.address,
         body.network,
         body.depth,
         body.tx_limit,
+        body.period_days,
         now,
     )
 
@@ -135,11 +156,13 @@ async def analyze(body: AnalyzeRequest, request: Request) -> AnalyzeResponse:
         )
 
         # Step 6 — match ALL graph nodes against the flagged-address DB
+        # Contradiction A: network_code is required so addresses from different
+        # blockchains with identical raw strings are never conflated.
         all_addresses = [n.address for n in graph_result.nodes]
-        flagged = await repo.get_flagged_addresses(pool, all_addresses)
+        flagged = await repo.get_flagged_addresses(pool, all_addresses, body.network)
 
         # Step 7 — is the KEY address itself in the DB?
-        root_flag = await repo.get_address_flag(pool, body.address)
+        root_flag = await repo.get_address_flag(pool, body.address, body.network)
 
         if root_flag is not None:
             # ── Path A: key address found in DB (step 12) ──────────────────
@@ -184,6 +207,7 @@ async def analyze(body: AnalyzeRequest, request: Request) -> AnalyzeResponse:
             score_result=score_result,
             flagged=flagged,
             scoring_method=scoring_method,
+            user_id=user_id,
         )
 
         await repo.mark_request_completed(pool, request_id, result_id)

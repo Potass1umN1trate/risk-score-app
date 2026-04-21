@@ -3,6 +3,11 @@ Repository — the only place where the analytics service touches the database.
 
 Schema: PostgreSQL with tables from initdb-configmap.yaml
 plus the subsequent migration (added columns: depth, is_root, flag_types, …).
+
+Spec alignment notes:
+- get_address_flag / get_flagged_addresses are network-aware (contradiction A).
+- save_analysis persists nullable user_id for future auth integration (contradiction D).
+- get_history_by_user provides user-bound history retrieval stub (contradiction D).
 """
 
 import json
@@ -31,15 +36,18 @@ async def _get_network_id(pool: asyncpg.Pool, network_code: str) -> int | None:
 async def get_address_flag(
     pool: asyncpg.Pool,
     address: str,
+    network_code: str,
 ) -> dict | None:
     """
-    Check whether the root address itself is in the flagged_addresses table.
+    Check whether the root address itself is in the flagged_addresses table
+    for the given network.
+
+    Lookup is keyed by (network_id, address) — the DB unique constraint — so
+    the same raw address string on different blockchains is never conflated
+    (contradiction A fix).
 
     Returns a dict with keys {risk_level, flag_type, category_severity}
     if found and active, otherwise None.
-
-    This is the fast-path: if the key address is already known-bad,
-    we skip ML entirely and return the stored classification.
     """
     row = await pool.fetchrow(
         """
@@ -47,12 +55,15 @@ async def get_address_flag(
                rc.severity  AS category_severity
         FROM   flagged_addresses fa
         JOIN   risk_categories   rc ON rc.id = fa.risk_category_id
+        JOIN   networks          n  ON n.id  = fa.network_id
         WHERE  fa.address   = $1
+          AND  n.code       = $2
           AND  fa.is_active = true
         ORDER BY rc.severity DESC
         LIMIT 1
         """,
         address,
+        network_code.upper(),
     )
     if row is None:
         return None
@@ -80,12 +91,14 @@ async def get_address_flag(
 async def get_flagged_addresses(
     pool: asyncpg.Pool,
     addresses: list[str],
-    network_code: str = "",
+    network_code: str,
 ) -> dict[str, list[str]]:
     """
-    Returns {address: [category_code, …]} for the given address list.
-    Only active records (is_active = true).
-    Category code is taken from risk_categories.code.
+    Returns {address: [category_code, …]} for the given address list,
+    restricted to the specified network (contradiction A fix).
+
+    Lookup filters by network_id so that the same raw address string on
+    different blockchains is never treated as the same flagged entity.
     """
     if not addresses:
         return {}
@@ -95,10 +108,13 @@ async def get_flagged_addresses(
         SELECT fa.address, rc.code AS flag_type
         FROM flagged_addresses fa
         JOIN risk_categories rc ON rc.id = fa.risk_category_id
+        JOIN networks        n  ON n.id  = fa.network_id
         WHERE fa.address = ANY($1::text[])
+          AND n.code     = $2
           AND fa.is_active = true
         """,
         addresses,
+        network_code.upper(),
     )
 
     result: dict[str, list[str]] = {}
@@ -120,6 +136,9 @@ async def save_analysis(
     score_result: ScoreResult,
     flagged: dict[str, list[str]],
     scoring_method: str = "ml_model",   # "database" | "ml_model"
+    # Contradiction D: user_id is nullable — supports both authenticated and
+    # anonymous/internal execution paths.
+    user_id: str | None = None,
 ) -> str:
     """
     Saves the full analysis result to the database in a single transaction.
@@ -272,3 +291,36 @@ async def mark_request_failed(
         request_id,
         error_message,
     )
+
+
+# ─── User-bound history (contradiction D) ────────────────────────────────────
+
+async def get_history_by_user(
+    pool: asyncpg.Pool,
+    user_id: str,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[dict]:
+    """
+    Return analysis requests for a specific user, newest first.
+
+    Provides the foundation for role-aware history queries once an auth layer
+    is added (contradiction D fix). The DB index idx_analysis_requests_user
+    covers (user_id, created_at DESC) for efficient retrieval.
+
+    TODO: add role-based filtering once RBAC is implemented in the auth service.
+    """
+    rows = await pool.fetch(
+        """
+        SELECT ar.id, ar.address, ar.network_code, ar.depth, ar.limit_tx,
+               ar.status, ar.result_id, ar.created_at, ar.completed_at
+        FROM   analysis_requests ar
+        WHERE  ar.user_id = $1
+        ORDER BY ar.created_at DESC
+        LIMIT  $2 OFFSET $3
+        """,
+        user_id,
+        limit,
+        offset,
+    )
+    return [dict(r) for r in rows]

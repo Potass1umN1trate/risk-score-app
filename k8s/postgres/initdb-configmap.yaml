@@ -140,6 +140,9 @@ data:
       address      VARCHAR(128) NOT NULL,
       depth        INTEGER      NOT NULL DEFAULT 2,
       limit_tx     INTEGER      NOT NULL DEFAULT 50,
+      -- Contradiction B: analysis period in days (NULL = no filter / fetch all available).
+      -- Blockchain fetchers store this for future enforcement; not yet applied at fetch time.
+      period_days  INTEGER,
       status       VARCHAR(20)  NOT NULL DEFAULT 'pending',  -- pending|processing|completed|failed
       error_message TEXT,
       result_id    CHAR(36),              -- заполняется после завершения
