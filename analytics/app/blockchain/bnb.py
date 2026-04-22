@@ -7,7 +7,11 @@ from .base import BlockchainFetcher, Transaction
 
 logger = logging.getLogger(__name__)
 
-_BSCSCAN_URL = "https://api.bscscan.com/api"
+# BscScan migrated to Etherscan API v2 (api.etherscan.io/v2/api?chainid=56).
+# Free Etherscan keys do not include BSC — a paid plan or separate BscScan key
+# registered at bscscan.com is required. The key is reused from etherscan_api_key.
+_ETHERSCAN_V2_URL = "https://api.etherscan.io/v2/api"
+_BSC_CHAIN_ID = 56
 _BLOCKCHAIR_URL = "https://api.blockchair.com/bnb/dashboards/address"
 _TIMEOUT = httpx.Timeout(15.0)
 
@@ -36,6 +40,7 @@ class BNBFetcher(BlockchainFetcher):
     ) -> list[dict]:
         try:
             params = {
+                "chainid": _BSC_CHAIN_ID,
                 "module": "account",
                 "action": "txlist",
                 "address": address,
@@ -44,11 +49,10 @@ class BNBFetcher(BlockchainFetcher):
                 "page": 1,
                 "offset": min(limit, 200),
                 "sort": "desc",
+                "apikey": settings.etherscan_api_key or "freekey",
             }
-            if settings.etherscan_api_key:
-                params["apikey"] = settings.etherscan_api_key
 
-            resp = await client.get(_BSCSCAN_URL, params=params)
+            resp = await client.get(_ETHERSCAN_V2_URL, params=params)
             resp.raise_for_status()
             data = resp.json()
             result = data.get("result") or []

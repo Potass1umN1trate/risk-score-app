@@ -156,7 +156,7 @@ Scorers:  ['ADA', 'BNB', 'BTC', 'DOGE', 'ETH', 'LTC', 'SOL', 'TON', 'TRX', 'XRP'
 | Helius (SOL) | ✅ | SOL primary |
 | Blockfrost (ADA) | ✅ | ADA primary |
 | TonCenter | ✅ | TON primary |
-| BscScan (BNB) | ❌ отсутствует | BNB primary |
+| Etherscan (BNB) | ✅ (тот же ключ) | BNB primary — но требует платный план Etherscan для chainid=56 |
 
 ---
 
@@ -173,7 +173,7 @@ Scorers:  ['ADA', 'BNB', 'BTC', 'DOGE', 'ETH', 'LTC', 'SOL', 'TON', 'TRX', 'XRP'
 
 | # | Проблема | Приоритет | Решение |
 |---|----------|-----------|---------|
-| 1 | BNB: нет BscScan API ключа | 🔴 HIGH | Зарегистрировать на bscscan.com, добавить `bscscan_api_key` в `.env` и `config.py` |
+| 1 | BNB: Etherscan v2 не поддерживает BSC на бесплатном плане | 🔴 HIGH | Нужен платный план Etherscan ($) или бесплатная альтернатива (ни одна из проверенных не работает без ключа) |
 | 2 | ADA: Blockchair 430 rate limit | 🟡 MED | Уже есть Blockfrost ключ — использовать Shelley-era адреса; Blockchair — вторичный fallback |
 | 3 | TRX: нет обработки TRC20 → TRX | 🟡 MED | Добавить fallback на TronScan для поиска нативных TRX переводов |
 | 4 | ETH: amount = 1e-7 ETH | 🟢 LOW | Etherscan возвращает сумму в wei, деление на 1e18 корректно; малые значения — особенность тестового адреса |
