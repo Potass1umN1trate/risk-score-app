@@ -10,8 +10,9 @@ Real-CATS columns → our 27 AddressFeatures fields:
     payment_transactions        → tx_out_count
     total_received_BTC / 1e8    → total_received   (satoshi → BTC)
     total_sent_BTC     / 1e8    → total_sent
-    (total_received_BTC + total_sent_BTC) / max(transaction_number,1) / 1e8
-                                → avg_tx_amount
+    mean per-counterparty amount (best proxy from aggregate-only data;
+    true median is not computable from Real-CATS per-address aggregates)
+                                → median_tx_amount
     max(max_received_amount, max_sent_amount) / 1e8
                                 → max_tx_amount
     received_counters + sent_counters
@@ -90,7 +91,7 @@ BB_PATH = DATA_DIR / "BB.tsv"
 # These must stay in sync with OUR_FEATURE_NAMES in app/graph/features.py
 FEATURE_NAMES = [
     "tx_in_count", "tx_out_count", "total_received", "total_sent",
-    "avg_tx_amount", "max_tx_amount", "unique_counterparties",
+    "median_tx_amount", "max_tx_amount", "unique_counterparties",
     "depth1_neighbors", "depth2_neighbors", "in_degree", "out_degree",
     "graph_density", "clustering_coefficient",
     "active_days", "tx_per_day", "lifespan_days",
@@ -102,7 +103,7 @@ FEATURE_NAMES = [
 # Features that get log1p + z-score normalization at inference
 LOG_FEATURES = {
     "tx_in_count", "tx_out_count", "total_received", "total_sent",
-    "avg_tx_amount", "max_tx_amount", "unique_counterparties",
+    "median_tx_amount", "max_tx_amount", "unique_counterparties",
     "depth1_neighbors", "depth2_neighbors", "in_degree", "out_degree",
 }
 
@@ -125,8 +126,17 @@ def map_features(df: pd.DataFrame, rng: np.random.Generator) -> pd.DataFrame:
     out["total_sent"]     = df["total_sent_BTC"].clip(lower=0)
 
     total_tx = df["transaction_number"].clip(lower=1)
-    out["avg_tx_amount"] = (
-        (df["total_received_BTC"] + df["total_sent_BTC"]) / total_tx
+    # Real-CATS only has aggregate per-address data, so a true median cannot be
+    # computed.  The best available proxy: mean per-counterparty amount, which
+    # matches the per-edge averaging that features.py does before taking the median
+    # at inference.  Using unique_counterparties (number of edges) as divisor is
+    # more consistent with features.py than transaction_number.
+    unique_cp = (
+        df["received_counters"].fillna(0).clip(lower=0)
+        + df["sent_counters"].fillna(0).clip(lower=0)
+    ).clip(lower=1)
+    out["median_tx_amount"] = (
+        (df["total_received_BTC"] + df["total_sent_BTC"]) / unique_cp
     ).clip(lower=0)
 
     max_sent = df["max_sent_amount"].fillna(0).clip(lower=0)
@@ -336,7 +346,7 @@ def main() -> None:
         "tx_out_count":            5,
         "total_received":          250_000_000,   # 2.5 BTC
         "total_sent":              10_000_000,    # 0.1 BTC
-        "avg_tx_amount":        500_000,       # 0.005 BTC
+        "median_tx_amount":     500_000,       # 0.005 BTC
         "max_tx_amount":           20_000_000,    # 0.2 BTC
         "unique_counterparties":   450,
         "depth1_neighbors":        50,
@@ -363,7 +373,7 @@ def main() -> None:
         "tx_out_count":            8,
         "total_received":          12_000_000,    # 0.12 BTC
         "total_sent":              11_000_000,    # 0.11 BTC
-        "avg_tx_amount":        1_200_000,     # 0.012 BTC
+        "median_tx_amount":     1_200_000,     # 0.012 BTC
         "max_tx_amount":           4_000_000,     # 0.04 BTC
         "unique_counterparties":   15,
         "depth1_neighbors":        12,
