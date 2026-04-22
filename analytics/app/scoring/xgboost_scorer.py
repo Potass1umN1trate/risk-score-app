@@ -32,7 +32,7 @@ _FALLBACK_RAW_STATS: dict[str, tuple[float, float]] = {
     "tx_out_count":          (0.9,  0.7),
     "total_received":        (0.5,  1.5),
     "total_sent":            (0.5,  1.5),
-    "avg_tx_amount":         (0.1,  0.8),
+    "median_tx_amount":      (0.1,  0.8),
     "max_tx_amount":         (0.3,  1.2),
     "unique_counterparties": (0.8,  0.7),
     "depth1_neighbors":      (0.7,  0.6),
