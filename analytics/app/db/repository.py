@@ -142,6 +142,10 @@ async def save_analysis(
     Saves the full analysis result to the database in a single transaction.
     Returns: result_id (CHAR(36)) of the newly created analysis_results row.
     """
+    network_id = await _get_network_id(pool, network_code)
+    if network_id is None:
+        raise ValueError(f"Unknown network code '{network_code}' — cannot persist analysis")
+
     result_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
@@ -185,6 +189,7 @@ async def save_analysis(
                     (
                         str(uuid.uuid4()),
                         result_id,
+                        network_id,
                         node.address,
                         node.depth,
                         node.is_root,
@@ -201,10 +206,10 @@ async def save_analysis(
                 await conn.executemany(
                     """
                     INSERT INTO address_nodes (
-                        id, result_id, address,
+                        id, result_id, network_id, address,
                         depth, is_root, is_flagged, flag_types,
                         tags_json
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7::text[], $8::jsonb)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::text[], $9::jsonb)
                     """,
                     node_rows,
                 )
@@ -215,6 +220,7 @@ async def save_analysis(
                     (
                         str(uuid.uuid4()),
                         result_id,
+                        network_id,
                         edge.from_address,
                         edge.to_address,
                         edge.tx_count,
@@ -233,11 +239,11 @@ async def save_analysis(
                 await conn.executemany(
                     """
                     INSERT INTO graph_edges (
-                        id, result_id,
+                        id, result_id, network_id,
                         from_address, to_address,
                         tx_count, amount, tx_time,
                         first_seen, last_seen
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
                     """,
                     edge_rows,
                 )

@@ -181,6 +181,7 @@ data:
     CREATE TABLE IF NOT EXISTS address_nodes (
       id         CHAR(36)     PRIMARY KEY,
       result_id  CHAR(36)     NOT NULL REFERENCES analysis_results(id) ON DELETE CASCADE,
+      network_id INTEGER      NOT NULL REFERENCES networks(id),
       address    VARCHAR(128) NOT NULL,
       depth      INTEGER      NOT NULL DEFAULT 0,
       is_root    BOOLEAN      NOT NULL DEFAULT FALSE,
@@ -198,6 +199,7 @@ data:
     CREATE TABLE IF NOT EXISTS graph_edges (
       id           CHAR(36)       PRIMARY KEY,
       result_id    CHAR(36)       NOT NULL REFERENCES analysis_results(id) ON DELETE CASCADE,
+      network_id   INTEGER        NOT NULL REFERENCES networks(id),
       from_address VARCHAR(128)   NOT NULL,
       to_address   VARCHAR(128)   NOT NULL,
       tx_count     INTEGER        NOT NULL DEFAULT 1,
