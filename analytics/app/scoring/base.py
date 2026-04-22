@@ -15,7 +15,7 @@ from app.graph.features import AddressFeatures
 class ScoreResult:
     """Scoring result for a single address."""
     score: float          # 0.0 … 100.0
-    risk_level: str       # LOW | MEDIUM | HIGH | CRITICAL
+    risk_level: str       # LOW | MEDIUM | HIGH
     model_version: str    # for reproducibility (e.g. "btc_xgboost_v1")
     raw_probability: float  # raw P(illicit) from the model before scaling
 
@@ -24,15 +24,14 @@ def score_to_risk_level(score: float) -> str:
     """
     Map a numeric score to a risk level label.
     Thresholds are aligned with the thesis specification.
+    LOW < 25 ≤ MEDIUM < 60 ≤ HIGH
     """
     if score < 25:
         return "LOW"
     elif score < 60:
         return "MEDIUM"
-    elif score < 85:
-        return "HIGH"
     else:
-        return "CRITICAL"
+        return "HIGH"
 
 
 class BaseScorer(ABC):

@@ -69,9 +69,7 @@ async def get_address_flag(
         return None
 
     severity = row["category_severity"]   # 0-100
-    if severity >= 85:
-        risk_level = "CRITICAL"
-    elif severity >= 60:
+    if severity >= 60:
         risk_level = "HIGH"
     elif severity >= 25:
         risk_level = "MEDIUM"
