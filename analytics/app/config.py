@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     helius_api_key: str = ""
     blockfrost_api_key: str = ""
     toncenter_api_key: str = ""
+    moralis_api_key: str = ""
 
     class Config:
         env_file = ".env"
