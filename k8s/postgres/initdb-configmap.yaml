@@ -204,7 +204,6 @@ data:
       to_address   VARCHAR(128)   NOT NULL,
       tx_count     INTEGER        NOT NULL DEFAULT 1,
       amount       DECIMAL(30,10),   -- суммарный объём (total_amount)
-      tx_time      TIMESTAMPTZ,      -- последняя транзакция (last_seen)
       first_seen   TIMESTAMPTZ,
       last_seen    TIMESTAMPTZ
     );

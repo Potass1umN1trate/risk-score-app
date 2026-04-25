@@ -225,10 +225,6 @@ async def save_analysis(
                         edge.to_address,
                         edge.tx_count,
                         edge.total_amount,
-                        # tx_time = last_seen (most recent transaction)
-                        datetime.fromtimestamp(edge.last_seen, tz=timezone.utc)
-                        if edge.last_seen else None,
-                        # first_seen / last_seen as separate columns
                         datetime.fromtimestamp(edge.first_seen, tz=timezone.utc)
                         if edge.first_seen else None,
                         datetime.fromtimestamp(edge.last_seen, tz=timezone.utc)
@@ -241,9 +237,9 @@ async def save_analysis(
                     INSERT INTO graph_edges (
                         id, result_id, network_id,
                         from_address, to_address,
-                        tx_count, amount, tx_time,
+                        tx_count, amount,
                         first_seen, last_seen
-                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                     """,
                     edge_rows,
                 )
