@@ -15,7 +15,6 @@
 - [ ] Admin: user management, audit logs, system settings
 - [ ] Moderator + Admin: view flagged-address list; Moderator: add flagged address (risk_category + comment required), deactivate own records only; Admin: deactivate any record, import/export
 - [ ] Report export (analysis result → file)
-- [ ] Admin: import/export flagged addresses
 
 ---
 
