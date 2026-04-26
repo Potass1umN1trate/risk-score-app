@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 import httpx
 
 from app.config import settings
-from .base import BlockchainFetcher, Transaction
+from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -31,11 +31,15 @@ class BNBFetcher(BlockchainFetcher):
                     params={"chain": "bsc", "limit": limit},
                     headers={"X-API-Key": settings.moralis_api_key},
                 )
+                if resp.status_code == 429:
+                    raise BlockchainRateLimitedError(f"Moralis BNB rate-limited (HTTP 429) for {address}")
                 resp.raise_for_status()
                 data = resp.json()
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.warning("Moralis BNB fetch failed for %s: %s", address, exc)
-            return []
+            raise BlockchainUnavailableError(f"BNB provider (Moralis) unavailable for {address}") from exc
 
         return self._normalize(data.get("result") or [])
 

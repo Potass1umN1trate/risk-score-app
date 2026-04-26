@@ -3,7 +3,7 @@ import logging
 import httpx
 
 from app.config import settings
-from .base import BlockchainFetcher, Transaction
+from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +44,8 @@ class TronFetcher(BlockchainFetcher):
                 headers=headers,
                 params={"limit": min(limit, 200)},
             )
+            if resp.status_code == 429:
+                raise BlockchainRateLimitedError(f"TronGrid rate-limited (HTTP 429) for {address}")
             resp.raise_for_status()
             data = resp.json()
             return (data.get("data") or [])[:limit]
@@ -63,9 +65,11 @@ class TronFetcher(BlockchainFetcher):
             resp.raise_for_status()
             data = resp.json()
             return (data.get("data") or [])[:limit]
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.error("TronScan also failed for %s: %s", address, exc)
-            return []
+            raise BlockchainUnavailableError(f"All TRX providers failed for {address}") from exc
 
     def _normalize(self, raw_txs: list[dict]) -> list[Transaction]:
         result: list[Transaction] = []

@@ -4,7 +4,7 @@ import logging
 import httpx
 
 from app.config import settings
-from .base import BlockchainFetcher, Transaction
+from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,8 @@ class SolanaFetcher(BlockchainFetcher):
                 "method": "getSignaturesForAddress",
                 "params": [address, {"limit": min(limit, 100)}],
             })
+            if resp.status_code == 429:
+                raise BlockchainRateLimitedError(f"Solana RPC rate-limited (HTTP 429) for {address}")
             resp.raise_for_status()
             sigs = resp.json().get("result") or []
             signatures = [s["signature"] for s in sigs if "signature" in s]
@@ -74,9 +76,11 @@ class SolanaFetcher(BlockchainFetcher):
                     logger.debug("getTransaction %s failed: %s", sig, exc)
 
             return txs
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.error("Solana RPC failed for %s: %s", address, exc)
-            return []
+            raise BlockchainUnavailableError(f"SOL RPC unavailable for {address}") from exc
 
     def _normalize(self, raw_txs: list[dict], address: str) -> list[Transaction]:
         result: list[Transaction] = []

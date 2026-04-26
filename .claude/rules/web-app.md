@@ -31,6 +31,18 @@
 - Form: address input + network selector + depth + tx_limit (+ optional period_days)
 - Submit → POST to analytics-service → show result (risk_score, risk_level, graph)
 - Validate address format before sending to analytics-service
+- On non-200 response: parse `error_code` field and branch UI by code (see table below)
+
+| `error_code` | UI behaviour |
+|---|---|
+| `INVALID_ADDRESS` | Inline form error on the address field |
+| `UNSUPPORTED_NETWORK` | Inline form error on the network selector |
+| `BLOCKCHAIN_RATE_LIMITED` | Toast/banner: "Data provider is rate-limiting — please wait and retry" |
+| `BLOCKCHAIN_UNAVAILABLE` | Toast/banner: "Blockchain data is temporarily unavailable — try again later" |
+| `INTERNAL_ERROR` | Toast/banner: "Something went wrong. Please try again." |
+| unknown / missing | Treat as `INTERNAL_ERROR` |
+
+- ❌ NEVER parse the human-readable `detail` string to decide which error to show
 
 ### History
 - List of own analyses (user/moderator), all analyses (admin)
@@ -82,3 +94,4 @@
 - ✅ Blocked users denied at middleware — not just UI level
 - ✅ Log failed login attempts to audit_logs
 - ✅ Validate address format BEFORE sending to analytics-service
+- ✅ Branch UI error display by `error_code` field — NEVER parse `detail` string

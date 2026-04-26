@@ -20,7 +20,7 @@ from collections import deque
 import networkx as nx
 
 from app.blockchain.registry import get_fetcher
-from app.blockchain.base import Transaction
+from app.blockchain.base import Transaction, BlockchainError
 
 
 # ─── Return type definitions ───────────────────────────────────────────────────
@@ -150,10 +150,9 @@ class GraphBuilder:
 
             async def _fetch_one(addr: str) -> tuple[str, list[Transaction]]:
                 async with sem:
-                    try:
-                        txs = await fetcher.fetch(addr, limit=self.tx_limit_per_address)
-                    except Exception:
-                        txs = []
+                    # BlockchainError subclasses propagate to build() caller;
+                    # unexpected exceptions are also left to propagate.
+                    txs = await fetcher.fetch(addr, limit=self.tx_limit_per_address)
                     return addr, txs
 
             tasks = [_fetch_one(addr) for addr, _ in to_fetch]

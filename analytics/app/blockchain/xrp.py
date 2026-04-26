@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from .base import BlockchainFetcher, Transaction
+from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +40,8 @@ class XRPFetcher(BlockchainFetcher):
                 "method": "account_tx",
                 "params": [{"account": address, "limit": min(limit, 200)}],
             })
+            if resp.status_code == 429:
+                raise BlockchainRateLimitedError(f"Ripple RPC rate-limited (HTTP 429) for {address}")
             resp.raise_for_status()
             data = resp.json()
             txs = (data.get("result") or {}).get("transactions") or []
@@ -54,9 +56,11 @@ class XRPFetcher(BlockchainFetcher):
             )
             resp.raise_for_status()
             return (resp.json() or [])[:limit]
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.error("XRPScan also failed for %s: %s", address, exc)
-            return []
+            raise BlockchainUnavailableError(f"All XRP providers failed for {address}") from exc
 
     def _normalize(self, raw_txs: list[dict]) -> list[Transaction]:
         result: list[Transaction] = []

@@ -2,7 +2,7 @@ import logging
 
 import httpx
 
-from .base import BlockchainFetcher, Transaction
+from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -39,9 +39,13 @@ class DogecoinFetcher(BlockchainFetcher):
                 f"{_BLOCKCYPHER_URL}/{address}/full",
                 params={"limit": min(limit, 50)},
             )
+            if resp.status_code == 429:
+                raise BlockchainRateLimitedError(f"BlockCypher DOGE rate-limited (HTTP 429) for {address}")
             resp.raise_for_status()
             data = resp.json()
             return (data.get("txs") or [])[:limit]
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.warning("BlockCypher DOGE failed for %s: %s — trying Blockchair", address, exc)
 
@@ -51,9 +55,11 @@ class DogecoinFetcher(BlockchainFetcher):
             data = resp.json()
             txs = (data.get("data") or {}).get(address, {}).get("transactions") or []
             return [{"hash": t, "_blockchair": True} for t in txs[:limit]]
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.error("Blockchair DOGE also failed for %s: %s", address, exc)
-            return []
+            raise BlockchainUnavailableError(f"All DOGE providers failed for {address}") from exc
 
     def _normalize(self, raw_txs: list[dict], address: str) -> list[Transaction]:
         result: list[Transaction] = []

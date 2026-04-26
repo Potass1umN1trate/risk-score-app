@@ -1,6 +1,6 @@
 import httpx
 import asyncio
-from .base import BlockchainFetcher, Transaction
+from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 # mempool.space — public Esplora API, free, no API key required
 _BASE_URL = "https://mempool.space/api"
@@ -23,8 +23,13 @@ class BitcoinFetcher(BlockchainFetcher):
         return "BTC"
 
     async def fetch(self, address: str, limit: int = 50) -> list[Transaction]:
-        async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
-            raw_txs = await self._fetch_raw(client, address, limit)
+        try:
+            async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
+                raw_txs = await self._fetch_raw(client, address, limit)
+        except BlockchainRateLimitedError:
+            raise
+        except Exception as exc:
+            raise BlockchainUnavailableError(f"BTC API unavailable for {address}") from exc
 
         return self._normalize(address, raw_txs)
 
@@ -48,6 +53,8 @@ class BitcoinFetcher(BlockchainFetcher):
                 url += f"/chain/{after_txid}"
 
             response = await client.get(url)
+            if response.status_code == 429:
+                raise BlockchainRateLimitedError(f"BTC API rate-limited (HTTP 429) for {address}")
             response.raise_for_status()
             page: list[dict] = response.json()
 

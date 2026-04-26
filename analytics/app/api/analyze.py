@@ -23,7 +23,8 @@ import logging
 import uuid
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Request
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
@@ -33,10 +34,30 @@ from app.scoring.registry import get_scorer
 from app.scoring.base import ScoreResult, score_to_risk_level
 from app.db import repository as repo
 from app.validators.address import validate_address
+from app.blockchain.base import BlockchainRateLimitedError, BlockchainUnavailableError
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ─── Structured error response ────────────────────────────────────────────────
+
+class ErrorResponse(BaseModel):
+    error_code: str
+    detail: str
+    request_id: str | None = None
+
+
+def _error(status: int, code: str, detail: str, request_id: str | None = None) -> JSONResponse:
+    return JSONResponse(
+        status_code=status,
+        content=ErrorResponse(
+            error_code=code,
+            detail=detail,
+            request_id=request_id,
+        ).model_dump(),
+    )
 
 
 # ─── Pydantic schemas ─────────────────────────────────────────────────────────
@@ -104,29 +125,28 @@ class AnalyzeResponse(BaseModel):
 
 # ─── Main endpoint ────────────────────────────────────────────────────────────
 
-@router.post("/analyze", response_model=AnalyzeResponse)
-async def analyze(body: AnalyzeRequest, request: Request) -> AnalyzeResponse:
+@router.post("/analyze")
+async def analyze(body: AnalyzeRequest, request: Request):
     pool = request.app.state.db_pool
 
     try:
         scorer = get_scorer(body.network)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
+    except ValueError:
+        return _error(400, "UNSUPPORTED_NETWORK", f"Unsupported network: {body.network!r}")
 
-    # Contradiction C: validate address format before touching the DB or network
+    # Validate address format before touching the DB or network
     addr_check = validate_address(body.network, body.address)
     if not addr_check.valid:
-        raise HTTPException(status_code=400, detail=addr_check.reason)
+        return _error(400, "INVALID_ADDRESS", addr_check.reason or "Invalid address format")
 
     request_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
 
-    # Contradiction D: user_id is nullable — extracted from request state when an
-    # auth layer populates it; falls back to None for anonymous/internal calls.
+    # user_id is nullable — extracted from request state when an auth layer
+    # populates it; falls back to None for anonymous/internal calls.
     user_id: str | None = getattr(request.state, "user_id", None)
 
-    # Step 3 — save request to DB
-    # Contradiction B: period_days persisted for future fetcher enforcement.
+    # Step 3 — save request to DB before any network calls
     await pool.execute(
         """
         INSERT INTO analysis_requests
@@ -156,8 +176,8 @@ async def analyze(body: AnalyzeRequest, request: Request) -> AnalyzeResponse:
         )
 
         # Step 6 — match ALL graph nodes against the flagged-address DB
-        # Contradiction A: network_code is required so addresses from different
-        # blockchains with identical raw strings are never conflated.
+        # network_code is required so addresses from different blockchains
+        # with identical raw strings are never conflated.
         all_addresses = [n.address for n in graph_result.nodes]
         flagged = await repo.get_flagged_addresses(pool, all_addresses, body.network)
 
@@ -166,8 +186,6 @@ async def analyze(body: AnalyzeRequest, request: Request) -> AnalyzeResponse:
 
         if root_flag is not None:
             # ── Path A: key address found in DB (step 12) ──────────────────
-            # Take threat category and risk level directly from the database.
-            # ML is not needed.
             score_result = ScoreResult(
                 score=root_flag["risk_score"],
                 risk_level=root_flag["risk_level"],
@@ -184,10 +202,7 @@ async def analyze(body: AnalyzeRequest, request: Request) -> AnalyzeResponse:
 
         else:
             # ── Path B: unknown address — apply ML (steps 8–11) ────────────
-            # Steps 8–9 — collect features and build feature vector
             features = extract_features(graph_result, flagged)
-
-            # Step 10–11 — apply ML model and get risk level prediction
             score_result = scorer.score(features)
             scoring_method = "ml_model"
             logger.info(
@@ -212,10 +227,24 @@ async def analyze(body: AnalyzeRequest, request: Request) -> AnalyzeResponse:
 
         await repo.mark_request_completed(pool, request_id, result_id)
 
+    except BlockchainRateLimitedError as exc:
+        logger.warning("Blockchain rate-limited for %s/%s: %s", body.network, body.address, exc)
+        await repo.mark_request_failed(pool, request_id, f"BLOCKCHAIN_RATE_LIMITED: {exc}")
+        return _error(429, "BLOCKCHAIN_RATE_LIMITED",
+                      "Blockchain data provider is rate-limiting requests. Retry after a short wait.",
+                      request_id)
+
+    except BlockchainUnavailableError as exc:
+        logger.error("Blockchain unavailable for %s/%s: %s", body.network, body.address, exc)
+        await repo.mark_request_failed(pool, request_id, f"BLOCKCHAIN_UNAVAILABLE: {exc}")
+        return _error(502, "BLOCKCHAIN_UNAVAILABLE",
+                      "Blockchain data provider is temporarily unavailable. Try again later.",
+                      request_id)
+
     except Exception as exc:
         logger.exception("Analysis failed for %s/%s", body.network, body.address)
-        await repo.mark_request_failed(pool, request_id, str(exc))
-        raise HTTPException(status_code=500, detail=f"Analysis error: {exc}")
+        await repo.mark_request_failed(pool, request_id, type(exc).__name__)
+        return _error(500, "INTERNAL_ERROR", "Analysis failed due to an internal error.", request_id)
 
     # Step 15 — send result to client
     nodes_out = [

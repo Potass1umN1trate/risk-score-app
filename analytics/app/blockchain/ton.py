@@ -3,7 +3,7 @@ import logging
 import httpx
 
 from app.config import settings
-from .base import BlockchainFetcher, Transaction
+from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +42,8 @@ class TonFetcher(BlockchainFetcher):
                 headers["X-API-Key"] = settings.toncenter_api_key
 
             resp = await client.get(_TONCENTER_URL, headers=headers, params=params)
+            if resp.status_code == 429:
+                raise BlockchainRateLimitedError(f"TonCenter rate-limited (HTTP 429) for {address}")
             resp.raise_for_status()
             data = resp.json()
             return (data.get("transactions") or [])[:limit]
@@ -53,9 +55,11 @@ class TonFetcher(BlockchainFetcher):
             resp.raise_for_status()
             data = resp.json()
             return (data.get("transactions") or [])[:limit]
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.error("Orbs TON also failed for %s: %s", address, exc)
-            return []
+            raise BlockchainUnavailableError(f"All TON providers failed for {address}") from exc
 
     def _normalize(self, raw_txs: list[dict], address: str) -> list[Transaction]:
         result: list[Transaction] = []

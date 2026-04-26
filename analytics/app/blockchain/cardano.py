@@ -4,7 +4,7 @@ import logging
 import httpx
 
 from app.config import settings
-from .base import BlockchainFetcher, Transaction
+from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +47,8 @@ class CardanoFetcher(BlockchainFetcher):
                 headers=headers,
                 params={"count": min(limit, 100), "order": "desc"},
             )
+            if resp.status_code == 429:
+                raise BlockchainRateLimitedError(f"Blockfrost rate-limited (HTTP 429) for {address}")
             resp.raise_for_status()
             tx_list = resp.json() or []
 
@@ -69,6 +71,8 @@ class CardanoFetcher(BlockchainFetcher):
                     logger.debug("Blockfrost UTXO fetch failed for %s: %s", tx_hash, exc)
 
             return result
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.warning("Blockfrost failed for %s: %s — trying Blockchair", address, exc)
             return await self._fetch_blockchair(client, address, limit)
@@ -85,9 +89,11 @@ class CardanoFetcher(BlockchainFetcher):
             data = resp.json()
             txs = (data.get("data") or {}).get(address, {}).get("transactions") or []
             return [{"hash": t, "_blockchair": True} for t in txs[:limit]]
+        except BlockchainRateLimitedError:
+            raise
         except Exception as exc:
             logger.error("Blockchair ADA also failed for %s: %s", address, exc)
-            return []
+            raise BlockchainUnavailableError(f"All ADA providers failed for {address}") from exc
 
     def _normalize(self, raw_txs: list[dict], address: str) -> list[Transaction]:
         result: list[Transaction] = []

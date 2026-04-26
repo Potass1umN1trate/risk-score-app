@@ -12,6 +12,18 @@ class Transaction:
     timestamp: int       # unix timestamp (seconds)
 
 
+class BlockchainError(Exception):
+    """Base class for blockchain fetch errors surfaced to the caller."""
+
+
+class BlockchainUnavailableError(BlockchainError):
+    """All upstream providers for this network are unreachable or returned a server error."""
+
+
+class BlockchainRateLimitedError(BlockchainError):
+    """Upstream provider returned HTTP 429 or an equivalent rate-limit signal."""
+
+
 class BlockchainFetcher(ABC):
     """
     Base class for fetching transactions from a blockchain.
@@ -37,7 +49,10 @@ class BlockchainFetcher(ABC):
             limit:   maximum number of transactions to return
 
         Returns:
-            List of normalized transactions.
-            Raises an exception if the address is not found or the API is unavailable.
+            List of normalized transactions (empty list = address has no transactions).
+
+        Raises:
+            BlockchainRateLimitedError: upstream returned HTTP 429 or rate-limit signal.
+            BlockchainUnavailableError: all upstream providers failed (timeout, 5xx, etc.).
         """
         ...
