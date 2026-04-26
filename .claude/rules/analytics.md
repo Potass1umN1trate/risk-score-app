@@ -19,6 +19,10 @@
 - Request lifecycle: `processing → completed / failed`
 - History: `get_history_by_user(pool, user_id)` — user-bound, newest first
 - Config: `analytics/app/config.py` — database_url, max_depth=5, max_addresses=20, API keys
+
+## NOT Implemented ❌
+
+
 ---
 
 ## Analysis Algorithm
