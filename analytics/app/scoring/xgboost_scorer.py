@@ -18,6 +18,7 @@ Model files (produced by training/train_btc.py):
 
 import json
 import logging
+from dataclasses import fields
 from pathlib import Path
 
 import numpy as np
@@ -43,6 +44,52 @@ _FALLBACK_RAW_STATS: dict[str, tuple[float, float]] = {
 
 _RAW_STATS: dict[str, tuple[float, float]] = {}   # populated on first _load()
 _LOG_FEATURES = set(_FALLBACK_RAW_STATS.keys())
+_RATIO_FEATURES = {
+    "graph_density",
+    "clustering_coefficient",
+    "flagged_neighbors_ratio",
+}
+
+
+class ScoringValidationError(RuntimeError):
+    """Internal scoring failure raised when feature-vector validation fails."""
+
+
+def _validate_feature_vector(features: AddressFeatures, model: object | None) -> np.ndarray:
+    field_names = [field.name for field in fields(AddressFeatures)]
+    if field_names != OUR_FEATURE_NAMES:
+        raise ScoringValidationError("AddressFeatures field order does not match OUR_FEATURE_NAMES")
+
+    raw = features.to_numpy()
+    if raw.shape != (len(OUR_FEATURE_NAMES),):
+        raise ScoringValidationError(
+            f"Feature vector length mismatch: expected {len(OUR_FEATURE_NAMES)}, got {raw.shape}"
+        )
+
+    if not np.isfinite(raw).all():
+        raise ScoringValidationError("Feature vector contains non-finite values")
+
+    values = dict(zip(OUR_FEATURE_NAMES, raw, strict=True))
+    for name, value in values.items():
+        if name in _RATIO_FEATURES:
+            if value < 0.0 or value > 1.0:
+                raise ScoringValidationError(f"Feature {name} must be in [0, 1]")
+        elif value < 0.0:
+            raise ScoringValidationError(f"Feature {name} must be non-negative")
+
+    for name in _LOG_FEATURES:
+        if name not in _RAW_STATS:
+            raise ScoringValidationError(f"Missing scaler stats for {name}")
+        mu, sigma = _RAW_STATS[name]
+        if not np.isfinite(mu) or not np.isfinite(sigma) or sigma <= 0.0:
+            raise ScoringValidationError(f"Invalid scaler stats for {name}")
+
+    if model is not None:
+        model_feature_names = getattr(model, "feature_names", None)
+        if model_feature_names is not None and list(model_feature_names) != OUR_FEATURE_NAMES:
+            raise ScoringValidationError("XGBoost booster feature names do not match OUR_FEATURE_NAMES")
+
+    return raw
 
 
 class UniversalXGBoostScorer(BaseScorer):
@@ -100,8 +147,9 @@ class UniversalXGBoostScorer(BaseScorer):
         return self._network_code
 
     def score(self, features: AddressFeatures) -> ScoreResult:
+        raw = _validate_feature_vector(features, self._model)
         flag_score = self._flag_score(features)
-        ml_score   = self._ml_score(features) if self._model else 0.0
+        ml_score   = self._ml_score(raw) if self._model else 0.0
 
         # Combine: flags dominate, ML adds up to 40 extra points
         combined = flag_score + ml_score * (1.0 - flag_score / 100.0)
@@ -154,11 +202,10 @@ class UniversalXGBoostScorer(BaseScorer):
 
     # ── XGBoost volume/topology signal (0-40 contribution) ───────────────────
 
-    def _ml_score(self, features: AddressFeatures) -> float:
+    def _ml_score(self, raw: np.ndarray) -> float:
         import xgboost as xgb
         import pandas as pd
 
-        raw = features.to_numpy().copy()
         norm = raw.copy()
 
         for i, name in enumerate(OUR_FEATURE_NAMES):
