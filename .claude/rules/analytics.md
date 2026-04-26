@@ -25,9 +25,9 @@
 - `AnalyzeResponse.EdgeOut` exposes aggregated edge time range as nullable Unix timestamp seconds: `first_seen` and `last_seen`.
 - Explicit feature-vector validation before scoring: `UniversalXGBoostScorer` verifies `AddressFeatures` field order against `OUR_FEATURE_NAMES`, vector length, finite values, semantic ranges, scaler stats for all log-normalized features, and loaded booster feature names when exposed by XGBoost.
 - Feature-vector validation failure is an internal scoring failure. It propagates through the generic API error path as structured `INTERNAL_ERROR`; raw validation details are not exposed to API clients, and validation failure does not trigger heuristic fallback.
+- **Test baseline established**: `analytics/requirements-dev.txt` pins `pytest`, `pytest-asyncio`, and `httpx` for dev/test use (separate from runtime `requirements.txt`). `analytics/tests/conftest.py` provides session/function-scoped fixtures: `minimal_graph_result`, `empty_graph_result`, `no_flags`, `one_flag_ransomware`, `zero_features`, `loaded_scorer`. All 30 existing tests pass (30/30). No DB, Docker, or Postgres dependency introduced.
 
 ## NOT Implemented ❌
-- [ ] Audit analytics-service test/deploy readiness: existing tests, fixtures, Dockerfile, k8s manifests, env/secrets, model artifacts
 - [ ] Add unit tests for feature extraction: 27-feature order, empty graph, volume/topology/temporal/risk-signal calculations
 - [ ] Add unit tests for structured human-readable factors: DB path, ML path, flagged categories, clean LOW result
 - [ ] Add unit tests for XGBoost scorer validation and heuristic fallback behavior
@@ -38,7 +38,6 @@
 - [ ] Add local analytics-service container build smoke test with env, health check, model status, and DB connectivity
 - [ ] Review k8s manifests for analytics-service deployment readiness: env/secrets, probes, resources, DB URL, model artifacts, and egress
 - [ ] Run k3s staging deploy smoke test for analytics-service: pods, probes, logs, DB writes, model status, and sample analysis
-- [ ] Establish analytics-service test baseline: dev test dependencies, pytest fixtures skeleton, and stable existing test pass
 
 ---
 

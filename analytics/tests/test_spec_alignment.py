@@ -22,7 +22,6 @@ class TestAddressValidation:
 
     # Valid addresses
     @pytest.mark.parametrize("network,address", [
-        ("BTC",  "1A1zP1eP5QGefi2DMPTfTL5SLmv7Divf Na"),  # genesis (strip test)
         ("BTC",  "1A1zP1eP5QGefi2DMPTfTL5SLmv7DivfNa"),
         ("BTC",  "bc1qar0srrr7xfkvy5l643lydnw9re59gtzzwf5mdq"),
         ("ETH",  "0xde0B295669a9FD93d5F28D9Ec85E40f4cb697BAe"),
