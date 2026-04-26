@@ -101,7 +101,7 @@ The same string address can exist in different networks. Never query by address 
 | risk_level | VARCHAR(32) | NOT NULL — `LOW` / `MEDIUM` / `HIGH` |
 | model_version | VARCHAR(64) | nullable — model/scoring implementation version |
 | raw_probability | FLOAT | nullable — raw model/scoring probability, 0.0–1.0 |
-| factors_json | JSONB | nullable — `{scoring_method, model_version, raw_probability, features: {...}}` |
+| factors_json | JSONB | nullable — `{scoring_method, model_version, raw_probability, factors: [...], features: {...}}`; `factors` contains structured human-readable factor objects (`key`, `label`, `value`, `severity`, `description`) generated from DB flags and computed features |
 | analyzed_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() — analysis timestamp |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
 

@@ -131,6 +131,7 @@ async def save_analysis(
     network_code: str,
     graph_result: GraphResult,
     features: AddressFeatures | None,   # None when scoring_method == "database"
+    factors: list[dict],
     score_result: ScoreResult,
     flagged: dict[str, list[str]],
     scoring_method: str = "ml_model",   # "database" | "ml_model"
@@ -154,6 +155,7 @@ async def save_analysis(
         "scoring_method": scoring_method,
         "model_version": score_result.model_version,
         "raw_probability": score_result.raw_probability,
+        "factors": factors,
         "features": features.to_dict() if features else {},
     }
 

@@ -31,6 +31,7 @@ from app.graph.builder import GraphBuilder
 from app.graph.features import extract as extract_features
 from app.scoring.registry import get_scorer
 from app.scoring.base import ScoreResult, score_to_risk_level
+from app.scoring.factors import build_factors
 from app.db import repository as repo
 from app.validators.address import validate_address
 from app.blockchain.base import BlockchainRateLimitedError, BlockchainUnavailableError
@@ -98,6 +99,7 @@ class AnalyzeResponse(BaseModel):
     edges_count: int = 0
     nodes: list[NodeOut] = []
     edges: list[EdgeOut] = []
+    factors: list[dict] = []
     features: dict = {}
     analyzed_at: str
 
@@ -197,6 +199,8 @@ async def analyze(body: AnalyzeRequest, request: Request):
                 score_result.score, score_result.risk_level,
             )
 
+        factors = build_factors(features, flagged, root_flag, score_result)
+
         # Steps 13–14 — build result and save to DB
         result_id = await repo.save_analysis(
             pool,
@@ -205,6 +209,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
             network_code=body.network,
             graph_result=graph_result,
             features=features,
+            factors=factors,
             score_result=score_result,
             flagged=flagged,
             scoring_method=scoring_method,
@@ -267,6 +272,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
         edges_count=len(edges_out),
         nodes=nodes_out,
         edges=edges_out,
+        factors=factors,
         features=features.to_dict() if features else {},
         analyzed_at=now.isoformat(),
     )
