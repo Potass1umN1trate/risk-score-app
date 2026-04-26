@@ -26,7 +26,7 @@ feed-collector (CronJob) ──────────────────�
 - Address uniqueness: always `(network_id, address)` pair, never address alone
 - All UUIDs: CHAR(36) generated server-side
 - NEVER hardcode DB credentials
-- NEVER commit .env or model files
+- NEVER commit .env, private API keys, database credentials, or secrets. Analytics model artifacts may be committed intentionally for reproducibility/backup.
 
 ## Component Specs (functions + constraints per component)
 - @.claude/rules/web-app.md
