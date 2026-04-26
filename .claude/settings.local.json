@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3 -m py_compile main.py app/config.py app/blockchain/base.py app/blockchain/bitcoin.py app/blockchain/registry.py app/graph/builder.py app/graph/features.py app/scoring/base.py app/scoring/xgboost_scorer.py app/scoring/registry.py app/db/repository.py app/api/analyze.py training/train_btc.py)",
+      "Bash(python3 -m venv .venv)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(mkdir -p training/data)",
+      "Bash(.venv/bin/kaggle datasets:*)",
+      "Bash(.venv/bin/python -m training.train_btc)",
+      "Bash(cat)",
+      "Bash(.venv/bin/python /tmp/test_scorer.py)",
+      "Bash(.venv/bin/python -)",
+      "Bash(.venv/bin/python -c ':*)",
+      "Bash(git push:*)",
+      "Bash(.venv/bin/python -m py_compile app/api/analyze.py app/db/repository.py)",
+      "Bash(.venv/bin/python /tmp/test_pipeline.py)",
+      "Bash(.venv/bin/python /tmp/test_ml_only.py)",
+      "Bash(.venv/bin/python /tmp/test_what_model_sees.py)",
+      "Bash(python3 -c ':*)",
+      "Bash(/home/ubuntu/risk-score-crypto-app/risk-score-app/analytics/.venv/bin/python -c ':*)",
+      "Bash(/home/ubuntu/risk-score-crypto-app/risk-score-app/analytics/.venv/bin/python -)",
+      "Bash(python3 -c ' *)",
+      "Bash(python3 -)",
+      "Bash(echo \"TINYINT count: $?\")",
+      "Bash(echo \"is_active=0 count: $?\")"
+    ]
+  }
+}
