@@ -17,11 +17,15 @@
 - Fetchers: BTC (mempool.space), ETH (Etherscan v2), TRX, SOL (Helius), BNB (Moralis), XRP, LTC, DOGE, ADA (Blockfrost), TON (TonCenter)
 - DB connection pool: asyncpg (main.py lifespan)
 - Request lifecycle: `processing → completed / failed`
-- History: `get_history_by_user(pool, user_id)` — user-bound, newest first
+- Persistence foundation for history: analysis requests/results are saved; public history API belongs to web-app
 - Config: `analytics/app/config.py` — database_url, max_depth=5, max_addresses=20, API keys
 
 ## NOT Implemented ❌
-
+- [ ] Enforce `period_days` in transaction fetching / graph building instead of only validating and persisting it
+- [ ] Wrap FastAPI/Pydantic validation errors (`422`) into structured `ErrorResponse` with machine-readable `error_code`
+- [ ] Generate structured human-readable risk factors explaining why the address received its score
+- [ ] Expose aggregated edge time range (`first_seen`, `last_seen`) in `EdgeOut` if graph UI/report needs temporal context
+- [ ] Add explicit feature-vector validation before scoring (`NaN`/`inf`, expected length/order, impossible values)
 
 ---
 

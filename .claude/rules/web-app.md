@@ -48,6 +48,8 @@
 - List of own analyses (user/moderator), all analyses (admin)
 - Re-open saved result (no recompute)
 - Export report to file
+- History API and history access control are web-app responsibilities; analytics-service only persists analysis records and does not expose public history endpoints
+
 
 ### Flagged Addresses
 - View list: moderator + admin only
