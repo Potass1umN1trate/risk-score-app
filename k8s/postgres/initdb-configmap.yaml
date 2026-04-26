@@ -135,7 +135,6 @@ data:
     CREATE TABLE IF NOT EXISTS analysis_requests (
       id           CHAR(36)     PRIMARY KEY,
       user_id      CHAR(36)     REFERENCES users(id) ON DELETE SET NULL,  -- NULL = internal call
-      network_id   INTEGER      REFERENCES networks(id),
       network_code VARCHAR(10),           -- быстрый lookup без JOIN
       address      VARCHAR(128) NOT NULL,
       depth        INTEGER      NOT NULL DEFAULT 2,
@@ -143,7 +142,7 @@ data:
       -- Contradiction B: analysis period in days (NULL = no filter / fetch all available).
       -- Blockchain fetchers store this for future enforcement; not yet applied at fetch time.
       period_days  INTEGER,
-      status       VARCHAR(20)  NOT NULL DEFAULT 'pending',  -- pending|processing|completed|failed
+      status       VARCHAR(20)  NOT NULL DEFAULT 'processing',  -- processing|completed|failed
       error_message TEXT,
       result_id    CHAR(36),              -- заполняется после завершения
       created_at   TIMESTAMPTZ  NOT NULL DEFAULT NOW(),

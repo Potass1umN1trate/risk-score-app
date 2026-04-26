@@ -79,13 +79,12 @@ The same string address can exist in different networks. Never query by address 
 |---|---|---|
 | id | CHAR(36) | PK (UUID) |
 | user_id | CHAR(36) | nullable FK → users.id (NULL = internal/anonymous call) |
-| network_id | INT | nullable FK → networks.id |
 | network_code | VARCHAR(10) | network code (e.g. `BTC`, `ETH`) — fast lookup without JOIN |
 | address | VARCHAR(128) | NOT NULL |
 | depth | INT | NOT NULL — analysis parameter, default 2 |
 | limit_tx | INT | NOT NULL — analysis parameter, default 50 |
 | period_days | INT | nullable — optional analysis period in days |
-| status | VARCHAR(20) | NOT NULL — request lifecycle: `pending` / `processing` / `completed` / `failed` |
+| status | VARCHAR(20) | NOT NULL — request lifecycle: `processing` / `completed` / `failed` |
 | error_message | TEXT | nullable — failure reason, set by `mark_request_failed` |
 | result_id | CHAR(36) | nullable — reference to analysis_results.id, set by `mark_request_completed` |
 | created_at | TIMESTAMPTZ | NOT NULL |

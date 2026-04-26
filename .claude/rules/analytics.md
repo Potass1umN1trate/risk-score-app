@@ -16,7 +16,7 @@
 - Address format validation: `app/validators/address.py` — per-network regex
 - Fetchers: BTC (mempool.space), ETH (Etherscan v2), TRX, SOL (Helius), BNB (BscScan — **broken, needs Moralis**), XRP, LTC, DOGE, ADA (Blockfrost), TON (TonCenter)
 - DB connection pool: asyncpg (main.py lifespan)
-- Request lifecycle: `pending → processing → completed / failed`
+- Request lifecycle: `processing → completed / failed`
 - History: `get_history_by_user(pool, user_id)` — user-bound, newest first
 - Config: `analytics/app/config.py` — database_url, max_depth=5, max_addresses=20, API keys
 
@@ -28,8 +28,7 @@
 ## Analysis Algorithm
 ```
 1.  Receive request (address, network, depth, tx_limit, period_days)
-2.  Save analysis_request to DB with status=pending
-3.  Set status=processing
+2.  Save analysis_request to DB with status=processing
 4.  Fetch tx data from blockchain API
 5.  Build transaction graph (BFS up to depth)
 6.  Match all graph nodes against flagged_addresses DB
