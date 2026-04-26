@@ -58,6 +58,7 @@ The same string address can exist in different networks. Never query by address 
 | Column | Type | Notes |
 |---|---|---|
 | id | SERIAL | PK |
+| code | VARCHAR(32) | UNIQUE, NOT NULL — machine-readable category code used as flag_type |
 | name | VARCHAR(100) | UNIQUE, NOT NULL |
 | severity | INT | NOT NULL — weight used in scoring (0–100) |
 
