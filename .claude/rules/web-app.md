@@ -39,7 +39,7 @@
 - Export report to file
 
 ### Flagged Addresses
-- View list (all roles)
+- View list: moderator + admin only
 - Add record: moderator + admin (risk_category + comment required)
 - Deactivate: moderator = own records only; admin = any record (soft delete)
 - Import from file / export to file: admin only (deduplication on import)
@@ -61,7 +61,7 @@
 | Run analysis | ✅ | ✅ | ✅ |
 | View own history | ✅ | ✅ | ✅ |
 | View all history | ❌ | ❌ | ✅ |
-| View flagged addresses | ✅ | ✅ | ✅ |
+| View flagged addresses | ❌ | ✅ | ✅ |
 | Add flagged address | ❌ | ✅ | ✅ |
 | Deactivate own flagged | ❌ | ✅ | ✅ |
 | Deactivate any flagged | ❌ | ❌ | ✅ |
