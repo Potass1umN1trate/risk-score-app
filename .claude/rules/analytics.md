@@ -19,9 +19,9 @@
 - Request lifecycle: `processing → completed / failed`
 - Persistence foundation for history: analysis requests/results are saved; public history API belongs to web-app
 - Config: `analytics/app/config.py` — database_url, max_depth=5, max_addresses=20, API keys
+- `period_days` enforcement: `analyze.py` computes `since_ts` from `now - timedelta(days=period_days)` and passes it to `GraphBuilder.build(since_ts=...)`. The builder discards transactions with `tx.timestamp < since_ts` after each fetch (builder-side filtering; no provider-side filtering is applied).
 
 ## NOT Implemented ❌
-- [ ] Enforce `period_days` in transaction fetching / graph building instead of only validating and persisting it
 - [ ] Wrap FastAPI/Pydantic validation errors (`422`) into structured `ErrorResponse` with machine-readable `error_code`
 - [ ] Generate structured human-readable risk factors explaining why the address received its score
 - [ ] Expose aggregated edge time range (`first_seen`, `last_seen`) in `EdgeOut` if graph UI/report needs temporal context

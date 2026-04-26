@@ -21,7 +21,7 @@ Implements the algorithm from the thesis flowchart (Analytics module.pdf):
 
 import logging
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request
 from fastapi.responses import JSONResponse
@@ -67,8 +67,6 @@ class AnalyzeRequest(BaseModel):
     network: str = Field(..., description="Network code: BTC, ETH, TRX, …")
     depth: int = Field(default=2, ge=1, le=settings.max_depth)
     tx_limit: int = Field(default=50, ge=1, le=200)
-    # Contradiction B: analysis period — persisted and threaded through service layer.
-    # Blockchain fetchers do not yet enforce this server-side; see TODO in builder.py.
     period_days: int | None = Field(
         default=None,
         ge=1,
@@ -163,6 +161,12 @@ async def analyze(body: AnalyzeRequest, request: Request):
         now,
     )
 
+    since_ts: int | None = (
+        int((now - timedelta(days=body.period_days)).timestamp())
+        if body.period_days is not None
+        else None
+    )
+
     try:
         # Steps 4–5 — fetch transactions and build graph
         builder = GraphBuilder(
@@ -173,6 +177,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
             root_address=body.address,
             network_code=body.network,
             depth=body.depth,
+            since_ts=since_ts,
         )
 
         # Step 6 — match ALL graph nodes against the flagged-address DB

@@ -96,9 +96,13 @@ class GraphBuilder:
         root_address: str,
         network_code: str,
         depth: int = 2,
+        since_ts: int | None = None,
     ) -> GraphResult:
         """
         Build the graph starting from root_address up to the given depth.
+
+        since_ts: if set, transactions with timestamp < since_ts are discarded
+                  before being added to the graph (builder-side period filter).
 
         Returns:
             GraphResult containing the DiGraph, NodeInfo list, and EdgeInfo list.
@@ -161,6 +165,9 @@ class GraphBuilder:
             for addr, txs in results:
                 fetched.add(addr)
                 addr_depth = node_map[addr].depth
+
+                if since_ts is not None:
+                    txs = [tx for tx in txs if tx.timestamp and tx.timestamp >= since_ts]
 
                 for tx in txs:
                     from_a = tx.from_address
