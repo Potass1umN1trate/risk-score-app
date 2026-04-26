@@ -26,6 +26,19 @@
 - Explicit feature-vector validation before scoring: `UniversalXGBoostScorer` verifies `AddressFeatures` field order against `OUR_FEATURE_NAMES`, vector length, finite values, semantic ranges, scaler stats for all log-normalized features, and loaded booster feature names when exposed by XGBoost.
 - Feature-vector validation failure is an internal scoring failure. It propagates through the generic API error path as structured `INTERNAL_ERROR`; raw validation details are not exposed to API clients, and validation failure does not trigger heuristic fallback.
 
+## NOT Implemented ❌
+- [ ] Audit analytics-service test/deploy readiness: existing tests, fixtures, Dockerfile, k8s manifests, env/secrets, model artifacts
+- [ ] Add unit tests for feature extraction: 27-feature order, empty graph, volume/topology/temporal/risk-signal calculations
+- [ ] Add unit tests for structured human-readable factors: DB path, ML path, flagged categories, clean LOW result
+- [ ] Add unit tests for XGBoost scorer validation and heuristic fallback behavior
+- [ ] Add API success-path tests for `/health`, `/api/networks`, `/api/model/status`, and `/api/analyze`
+- [ ] Add API error-contract tests for `INVALID_REQUEST`, `INVALID_ADDRESS`, `UNSUPPORTED_NETWORK`, `BLOCKCHAIN_RATE_LIMITED`, `BLOCKCHAIN_UNAVAILABLE`, and `INTERNAL_ERROR`
+- [ ] Add Postgres integration smoke tests for successful analysis persistence and failed request persistence
+- [ ] Add model artifact verification for XGBoost/scaler presence, feature-name alignment, fallback, and corrupted-scaler failure
+- [ ] Add local analytics-service container build smoke test with env, health check, model status, and DB connectivity
+- [ ] Review k8s manifests for analytics-service deployment readiness: env/secrets, probes, resources, DB URL, model artifacts, and egress
+- [ ] Run k3s staging deploy smoke test for analytics-service: pods, probes, logs, DB writes, model status, and sample analysis
+
 ---
 
 ## Analysis Algorithm
