@@ -80,6 +80,8 @@ class EdgeOut(BaseModel):
     to_address: str
     tx_count: int
     total_amount: float
+    first_seen: int | None = None
+    last_seen: int | None = None
 
 
 class AnalyzeResponse(BaseModel):
@@ -254,6 +256,8 @@ async def analyze(body: AnalyzeRequest, request: Request):
             to_address=e.to_address,
             tx_count=e.tx_count,
             total_amount=e.total_amount,
+            first_seen=e.first_seen or None,
+            last_seen=e.last_seen or None,
         )
         for e in graph_result.edges
     ]
