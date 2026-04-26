@@ -22,7 +22,13 @@
       "Bash(python3 -c ' *)",
       "Bash(python3 -)",
       "Bash(echo \"TINYINT count: $?\")",
-      "Bash(echo \"is_active=0 count: $?\")"
+      "Bash(echo \"is_active=0 count: $?\")",
+      "Bash(echo \"exit: $?\")",
+      "Bash(.venv/bin/python -m pytest --version)",
+      "Bash(.venv/bin/pip show *)",
+      "Bash(python3 -m pytest --version)",
+      "Bash(python3 -m pytest tests/ --collect-only)",
+      "Bash(python3 -m pytest tests/ -q)"
     ]
   }
 }

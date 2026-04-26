@@ -38,6 +38,7 @@
 - [ ] Add local analytics-service container build smoke test with env, health check, model status, and DB connectivity
 - [ ] Review k8s manifests for analytics-service deployment readiness: env/secrets, probes, resources, DB URL, model artifacts, and egress
 - [ ] Run k3s staging deploy smoke test for analytics-service: pods, probes, logs, DB writes, model status, and sample analysis
+- [ ] Establish analytics-service test baseline: dev test dependencies, pytest fixtures skeleton, and stable existing test pass
 
 ---
 
