@@ -35,7 +35,9 @@
       "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff analytics/tests/test_spec_alignment.py)",
       "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff .claude/rules/analytics.md)",
       "Bash(python -m pytest tests/test_feature_extraction.py tests/test_spec_alignment.py -v)",
-      "Bash(python3 -m pytest tests/test_feature_extraction.py tests/test_spec_alignment.py -v)"
+      "Bash(python3 -m pytest tests/test_feature_extraction.py tests/test_spec_alignment.py -v)",
+      "Bash(python -m pytest tests/test_factors.py -v)",
+      "Bash(python3 -m pytest tests/test_factors.py -v)"
     ]
   }
 }
