@@ -7,6 +7,7 @@
 
 ## Implemented ✅
 - `POST /api/analyze` — main analysis endpoint (analytics/app/api/analyze.py)
+- FastAPI/Pydantic `RequestValidationError` (`422`) wrapped into structured `ErrorResponse` via global handler in `main.py`; shared `ErrorResponse`/`_error()` live in `analytics/app/api/errors.py`
 - `GET /api/networks` — list supported networks
 - `GET /api/model/status` — model load status (k8s readiness probe)
 - `GET /health` — healthcheck
@@ -22,7 +23,6 @@
 - `period_days` enforcement: `analyze.py` computes `since_ts` from `now - timedelta(days=period_days)` and passes it to `GraphBuilder.build(since_ts=...)`. The builder discards transactions with `tx.timestamp < since_ts` after each fetch (builder-side filtering; no provider-side filtering is applied).
 
 ## NOT Implemented ❌
-- [ ] Wrap FastAPI/Pydantic validation errors (`422`) into structured `ErrorResponse` with machine-readable `error_code`
 - [ ] Generate structured human-readable risk factors explaining why the address received its score
 - [ ] Expose aggregated edge time range (`first_seen`, `last_seen`) in `EdgeOut` if graph UI/report needs temporal context
 - [ ] Add explicit feature-vector validation before scoring (`NaN`/`inf`, expected length/order, impossible values)
@@ -143,12 +143,14 @@ All error responses return JSON with this shape regardless of HTTP status:
 
 | `error_code` | HTTP status | Cause |
 |---|---|---|
+| `INVALID_REQUEST` | 422 | FastAPI/Pydantic schema validation failed (wrong types, missing fields, out-of-range values) |
 | `INVALID_ADDRESS` | 400 | Address fails per-network format validation |
 | `UNSUPPORTED_NETWORK` | 400 | Network code not in supported set |
 | `BLOCKCHAIN_RATE_LIMITED` | 429 | All upstream providers returned HTTP 429 |
 | `BLOCKCHAIN_UNAVAILABLE` | 502 | All upstream providers failed (timeout, 5xx, network error) |
 | `INTERNAL_ERROR` | 500 | Unexpected internal failure (DB error, scoring bug, etc.) |
 
+- `request_id` is `null` for `INVALID_REQUEST` — the `RequestValidationError` is raised by FastAPI before the endpoint body executes, so no `analysis_request` DB record is ever created.
 - `request_id` is `null` for errors detected before the DB record is created (INVALID_ADDRESS, UNSUPPORTED_NETWORK).
 - `request_id` is present for errors detected after the DB record is created (BLOCKCHAIN_*, INTERNAL_ERROR) — the failed request is always persisted.
 - Raw internal exception text is NEVER included in `detail`. The internal reason is logged server-side and persisted in `analysis_requests.error_message`.

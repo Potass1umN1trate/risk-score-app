@@ -1,8 +1,10 @@
 import asyncpg
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 
 from app.api.analyze import router as analyze_router
+from app.api.errors import _error
 from app.config import settings
 
 
@@ -26,6 +28,11 @@ app = FastAPI(
 )
 
 app.include_router(analyze_router, prefix="/api")
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return _error(422, "INVALID_REQUEST", "Invalid request body or parameters.")
 
 
 @app.get("/health")

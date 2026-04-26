@@ -35,6 +35,7 @@
 
 | `error_code` | UI behaviour |
 |---|---|
+| `INVALID_REQUEST` | Inline/form-level message: "Invalid request. Check your inputs and try again." |
 | `INVALID_ADDRESS` | Inline form error on the address field |
 | `UNSUPPORTED_NETWORK` | Inline form error on the network selector |
 | `BLOCKCHAIN_RATE_LIMITED` | Toast/banner: "Data provider is rate-limiting — please wait and retry" |

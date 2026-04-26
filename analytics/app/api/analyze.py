@@ -24,7 +24,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, Request
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app.config import settings
@@ -35,29 +34,11 @@ from app.scoring.base import ScoreResult, score_to_risk_level
 from app.db import repository as repo
 from app.validators.address import validate_address
 from app.blockchain.base import BlockchainRateLimitedError, BlockchainUnavailableError
+from app.api.errors import ErrorResponse, _error
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
-
-
-# ─── Structured error response ────────────────────────────────────────────────
-
-class ErrorResponse(BaseModel):
-    error_code: str
-    detail: str
-    request_id: str | None = None
-
-
-def _error(status: int, code: str, detail: str, request_id: str | None = None) -> JSONResponse:
-    return JSONResponse(
-        status_code=status,
-        content=ErrorResponse(
-            error_code=code,
-            detail=detail,
-            request_id=request_id,
-        ).model_dump(),
-    )
 
 
 # ─── Pydantic schemas ─────────────────────────────────────────────────────────
