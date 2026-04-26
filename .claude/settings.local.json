@@ -39,7 +39,9 @@
       "Bash(python -m pytest tests/test_factors.py -v)",
       "Bash(python3 -m pytest tests/test_factors.py -v)",
       "Bash(python -m pytest tests/test_scorer.py -v)",
-      "Bash(python3 -m pytest tests/test_scorer.py -v)"
+      "Bash(python3 -m pytest tests/test_scorer.py -v)",
+      "Bash(python -m pytest tests/test_api_success.py -v)",
+      "Bash(python3 -m pytest tests/test_api_success.py -v)"
     ]
   }
 }
