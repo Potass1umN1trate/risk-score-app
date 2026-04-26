@@ -13,7 +13,7 @@
 - [ ] NextAuth.js auth (email+password, GitHub OAuth)
 - [ ] RBAC middleware (user/moderator/admin)
 - [ ] Admin: user management, audit logs, system settings
-- [ ] Moderator: add flagged address (risk_category + comment required), view list, deactivate own records only
+- [ ] Moderator + Admin: view flagged-address list; Moderator: add flagged address (risk_category + comment required), deactivate own records only; Admin: deactivate any record, import/export
 - [ ] Report export (analysis result → file)
 - [ ] Admin: import/export flagged addresses
 
