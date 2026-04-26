@@ -1,0 +1,116 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: analytics-service
+  namespace: risk-score-app
+  labels:
+    app: analytics-service
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: analytics-service
+  template:
+    metadata:
+      labels:
+        app: analytics-service
+    spec:
+      containers:
+        - name: analytics-service
+          image: risk-score-analytics:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: DATABASE_URL
+            - name: BTC_MODEL_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: analytics-config
+                  key: BTC_MODEL_PATH
+            - name: MAX_DEPTH
+              valueFrom:
+                configMapKeyRef:
+                  name: analytics-config
+                  key: MAX_DEPTH
+            - name: MAX_ADDRESSES_PER_ANALYSIS
+              valueFrom:
+                configMapKeyRef:
+                  name: analytics-config
+                  key: MAX_ADDRESSES_PER_ANALYSIS
+            - name: ETHERSCAN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: ETHERSCAN_API_KEY
+                  optional: true
+            - name: TRONGRID_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: TRONGRID_API_KEY
+                  optional: true
+            - name: TRONSCAN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: TRONSCAN_API_KEY
+                  optional: true
+            - name: HELIUS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: HELIUS_API_KEY
+                  optional: true
+            - name: BLOCKFROST_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: BLOCKFROST_API_KEY
+                  optional: true
+            - name: TONCENTER_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: TONCENTER_API_KEY
+                  optional: true
+            - name: MORALIS_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: MORALIS_API_KEY
+                  optional: true
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 30
+            periodSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/model/status
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 2
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            timeoutSeconds: 2
+            failureThreshold: 3
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"

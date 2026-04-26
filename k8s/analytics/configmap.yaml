@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: analytics-config
+  namespace: risk-score-app
+data:
+  BTC_MODEL_PATH: "models/btc_xgboost.json"
+  MAX_DEPTH: "5"
+  MAX_ADDRESSES_PER_ANALYSIS: "20"
