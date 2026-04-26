@@ -23,10 +23,10 @@ data:
     -- =============================================
     CREATE TABLE IF NOT EXISTS roles (
       id   SERIAL PRIMARY KEY,
-      name VARCHAR(32) NOT NULL UNIQUE  -- ADMIN, MODERATOR, USER
+      name VARCHAR(32) NOT NULL UNIQUE  -- admin, moderator, user
     );
 
-    INSERT INTO roles (name) VALUES ('ADMIN'), ('MODERATOR'), ('USER')
+    INSERT INTO roles (name) VALUES ('admin'), ('moderator'), ('user')
       ON CONFLICT DO NOTHING;
 
     -- =============================================
@@ -164,7 +164,7 @@ data:
       address          VARCHAR(128)  NOT NULL,
       network_code     VARCHAR(10)   NOT NULL,
       risk_score       DECIMAL(6,2)  NOT NULL,
-      risk_level       VARCHAR(32)   NOT NULL,  -- LOW, MEDIUM, HIGH, CRITICAL
+      risk_level       VARCHAR(32)   NOT NULL,  -- LOW, MEDIUM, HIGH
       model_version    VARCHAR(64),
       raw_probability  FLOAT,
       factors_json     JSONB,        -- {model_version, raw_probability, features: {...}}
