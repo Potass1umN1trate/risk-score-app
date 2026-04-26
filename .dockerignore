@@ -1,0 +1,16 @@
+.git
+.env
+.env.*
+**/.env
+**/.env.*
+
+analytics/.venv
+**/__pycache__/
+**/*.py[cod]
+**/.pytest_cache/
+.pytest_cache/
+
+build/
+dist/
+**/*.egg-info/
+analytics/training/data/
