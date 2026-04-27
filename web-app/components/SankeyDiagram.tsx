@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useRef, useEffect, useState } from "react";
-import { sankey, sankeyLinkHorizontal, type SankeyGraph } from "d3-sankey";
+import { sankey, sankeyLinkHorizontal } from "d3-sankey";
 import type { EdgeOut } from "@/lib/analytics";
 
 const ROOT_COLOR = "#4f46e5";
@@ -10,6 +10,8 @@ const NORMAL_COLOR = "#3d4268";
 const LINK_COLOR = "#2d3148";
 const LINK_COLOR_ROOT = "#4f46e5";
 const LINK_COLOR_FLAGGED = "#7f1d1d";
+
+const HEIGHT = 320;
 
 function truncate(addr: string): string {
   if (addr.length <= 14) return addr;
@@ -21,32 +23,30 @@ function formatTs(ts: number | null): string {
   return new Date(ts * 1000).toISOString().replace("T", " ").slice(0, 19) + " UTC";
 }
 
-interface SankeyNodeDatum {
+// Node shape after d3-sankey layout fills in coordinates.
+interface LayoutNode {
   id: string;
   label: string;
   isRoot: boolean;
   isFlagged: boolean;
-  // d3-sankey fills these in
-  x0?: number;
-  x1?: number;
-  y0?: number;
-  y1?: number;
-  index?: number;
+  x0: number;
+  x1: number;
+  y0: number;
+  y1: number;
 }
 
-interface SankeyLinkDatum {
-  source: number | SankeyNodeDatum;
-  target: number | SankeyNodeDatum;
+// Link shape after d3-sankey layout fills in coordinates.
+interface LayoutLink {
+  source: LayoutNode;
+  target: LayoutNode;
   value: number;
   txCount: number;
   totalAmount: number;
   firstSeen: number | null;
   lastSeen: number | null;
-  // d3-sankey fills these in
-  width?: number;
-  y0?: number;
-  y1?: number;
-  index?: number;
+  width: number;
+  y0: number;
+  y1: number;
 }
 
 export default function SankeyDiagram({
@@ -73,38 +73,64 @@ export default function SankeyDiagram({
 
   const flaggedSet = useMemo(() => new Set(flaggedAddresses), [flaggedAddresses]);
 
-  const graph = useMemo((): SankeyGraph<SankeyNodeDatum, SankeyLinkDatum> | null => {
-    if (edges.length === 0) return null;
-
-    const addrSet = new Set<string>();
-    for (const e of edges) {
-      addrSet.add(e.from_address);
-      addrSet.add(e.to_address);
+  // "layoutError" is distinct from "no edges": it means edges exist but layout failed.
+  const { layoutNodes, layoutLinks, layoutError } = useMemo(() => {
+    if (edges.length === 0) {
+      return { layoutNodes: null, layoutLinks: null, layoutError: false };
     }
 
-    const nodeList: SankeyNodeDatum[] = Array.from(addrSet).map((addr) => ({
+    // 1. Collect unique addresses in stable insertion order.
+    const addrOrder: string[] = [];
+    const addrIndex = new Map<string, number>();
+    for (const e of edges) {
+      for (const addr of [e.from_address, e.to_address]) {
+        if (!addrIndex.has(addr)) {
+          addrIndex.set(addr, addrOrder.length);
+          addrOrder.push(addr);
+        }
+      }
+    }
+
+    // 2. Build node objects. d3-sankey uses array position as the implicit id
+    //    when no .nodeId() is configured — so we do NOT call .nodeId().
+    const nodeInput = addrOrder.map((addr) => ({
       id: addr,
       label: truncate(addr),
       isRoot: addr === rootAddress,
       isFlagged: flaggedSet.has(addr),
     }));
 
-    const addrIndex = new Map(nodeList.map((n, i) => [n.id, i]));
+    // 3. Collapse parallel edges and build link objects with numeric indexes.
+    const linkMap = new Map<string, {
+      source: number;
+      target: number;
+      value: number;
+      txCount: number;
+      totalAmount: number;
+      firstSeen: number | null;
+      lastSeen: number | null;
+    }>();
 
-    // Collapse parallel edges (same from→to) into one link
-    const linkMap = new Map<string, SankeyLinkDatum>();
     for (const e of edges) {
-      const key = `${e.from_address}||${e.to_address}`;
-      const existing = linkMap.get(key);
-      if (existing) {
-        existing.txCount += e.tx_count;
-        existing.totalAmount += e.total_amount;
-        existing.value = existing.totalAmount > 0 ? existing.totalAmount : existing.txCount;
+      const si = addrIndex.get(e.from_address);
+      const ti = addrIndex.get(e.to_address);
+      if (si === undefined || ti === undefined) continue;
+
+      const rawVal = e.total_amount > 0 ? e.total_amount : e.tx_count;
+      const val = Number.isFinite(rawVal) && rawVal > 0 ? rawVal : e.tx_count;
+      if (!Number.isFinite(val) || val <= 0) continue;
+
+      const key = `${si}||${ti}`;
+      const ex = linkMap.get(key);
+      if (ex) {
+        ex.txCount += e.tx_count;
+        ex.totalAmount += e.total_amount;
+        const merged = ex.totalAmount > 0 ? ex.totalAmount : ex.txCount;
+        ex.value = Number.isFinite(merged) && merged > 0 ? merged : 0.001;
       } else {
-        const val = e.total_amount > 0 ? e.total_amount : e.tx_count;
         linkMap.set(key, {
-          source: addrIndex.get(e.from_address)!,
-          target: addrIndex.get(e.to_address)!,
+          source: si,
+          target: ti,
           value: Math.max(val, 0.001),
           txCount: e.tx_count,
           totalAmount: e.total_amount,
@@ -114,11 +140,14 @@ export default function SankeyDiagram({
       }
     }
 
-    const linkList = Array.from(linkMap.values());
+    if (linkMap.size === 0) {
+      return { layoutNodes: null, layoutLinks: null, layoutError: true };
+    }
 
-    const HEIGHT = 320;
-    const gen = sankey<SankeyNodeDatum, SankeyLinkDatum>()
-      .nodeId((d) => d.id)
+    const linkInput = Array.from(linkMap.values());
+
+    // 4. Run d3-sankey layout. No .nodeId() — source/target are plain numeric indexes.
+    const gen = sankey()
       .nodeWidth(16)
       .nodePadding(12)
       .extent([
@@ -126,14 +155,22 @@ export default function SankeyDiagram({
         [width - 24, HEIGHT - 16],
       ]);
 
+    let result: ReturnType<typeof gen>;
     try {
-      return gen({ nodes: nodeList, links: linkList });
+      result = gen({ nodes: nodeInput as never[], links: linkInput as never[] });
     } catch {
-      return null;
+      return { layoutNodes: null, layoutLinks: null, layoutError: true };
     }
+
+    return {
+      layoutNodes: result.nodes as unknown as LayoutNode[],
+      layoutLinks: result.links as unknown as LayoutLink[],
+      layoutError: false,
+    };
   }, [edges, rootAddress, flaggedSet, width]);
 
-  if (edges.length === 0 || !graph) {
+  // Case 1: no edges at all
+  if (edges.length === 0) {
     return (
       <p style={{ color: "var(--color-muted)", fontSize: "0.9rem" }}>
         No transaction edges found — visualization is not available.
@@ -141,7 +178,14 @@ export default function SankeyDiagram({
     );
   }
 
-  const HEIGHT = 320;
+  // Case 2: edges exist but layout failed
+  if (layoutError || !layoutNodes || !layoutLinks) {
+    return (
+      <p style={{ color: "var(--color-muted)", fontSize: "0.9rem" }}>
+        Transaction flow layout could not be generated.
+      </p>
+    );
+  }
 
   return (
     <div ref={containerRef} className="sankey-container">
@@ -152,17 +196,16 @@ export default function SankeyDiagram({
         style={{ overflow: "visible" }}
       >
         {/* Links */}
-        {graph.links.map((link, i) => {
-          const srcNode = link.source as SankeyNodeDatum;
+        {layoutLinks.map((link, i) => {
           const path = sankeyLinkHorizontal()(link as never) ?? "";
-          const linkColor = srcNode.isRoot
+          const linkColor = link.source.isRoot
             ? LINK_COLOR_ROOT
-            : srcNode.isFlagged
+            : link.source.isFlagged
             ? LINK_COLOR_FLAGGED
             : LINK_COLOR;
 
           const title = [
-            `${(link.source as SankeyNodeDatum).id} → ${(link.target as SankeyNodeDatum).id}`,
+            `${link.source.id} → ${link.target.id}`,
             `tx_count: ${link.txCount}`,
             `total_amount: ${link.totalAmount.toFixed(8)}`,
             `first_seen: ${formatTs(link.firstSeen)}`,
@@ -185,7 +228,7 @@ export default function SankeyDiagram({
         })}
 
         {/* Nodes */}
-        {graph.nodes.map((node, i) => {
+        {layoutNodes.map((node, i) => {
           const x0 = node.x0 ?? 0;
           const x1 = node.x1 ?? 0;
           const y0 = node.y0 ?? 0;
@@ -200,14 +243,7 @@ export default function SankeyDiagram({
 
           return (
             <g key={i}>
-              <rect
-                x={x0}
-                y={y0}
-                width={x1 - x0}
-                height={y1 - y0}
-                fill={nodeColor}
-                rx={3}
-              >
+              <rect x={x0} y={y0} width={x1 - x0} height={y1 - y0} fill={nodeColor} rx={3}>
                 <title>{node.id}</title>
               </rect>
               <text
