@@ -1,6 +1,9 @@
 const { randomUUID } = require("crypto");
 const bcrypt = require("bcryptjs");
+const { loadEnvConfig } = require("@next/env");
 const { Pool } = require("pg");
+
+loadEnvConfig(process.cwd());
 
 const databaseUrl = process.env.DATABASE_URL;
 const adminEmail = process.env.ADMIN_EMAIL?.trim().toLowerCase();
