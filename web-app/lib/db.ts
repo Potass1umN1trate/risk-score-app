@@ -148,7 +148,7 @@ export interface HistoryEdge {
   from_address: string;
   to_address: string;
   tx_count: number;
-  amount: string;
+  amount: string | null;
   first_seen: string | null;
   last_seen: string | null;
 }
@@ -226,9 +226,14 @@ export async function getAnalysisHistory(
   limit: number,
   offset: number
 ): Promise<{ items: HistoryItem[]; total: number }> {
-  const params: unknown[] = [limit, offset];
-  const ownerFilter = userId ? `AND ar.user_id = $3` : "";
-  if (userId) params.push(userId);
+  // List query: $1=limit, $2=offset, $3=userId (only when userId set)
+  const listParams: unknown[] = [limit, offset];
+  const listFilter = userId ? `AND ar.user_id = $3` : "";
+  if (userId) listParams.push(userId);
+
+  // Count query: $1=userId (only when userId set) — separate param numbering
+  const countParams: unknown[] = userId ? [userId] : [];
+  const countFilter = userId ? `AND ar.user_id = $1` : "";
 
   const [listResult, countResult] = await Promise.all([
     query<HistoryRow>(
@@ -249,18 +254,18 @@ export async function getAnalysisHistory(
        JOIN analysis_results res ON res.request_id = ar.id
        LEFT JOIN users u ON u.id = ar.user_id
        WHERE ar.status = 'completed'
-       ${ownerFilter}
+       ${listFilter}
        ORDER BY res.analyzed_at DESC
        LIMIT $1 OFFSET $2`,
-      params
+      listParams
     ),
     query<{ total: string }>(
       `SELECT COUNT(*) AS total
        FROM analysis_requests ar
        JOIN analysis_results res ON res.request_id = ar.id
        WHERE ar.status = 'completed'
-       ${ownerFilter}`,
-      userId ? [userId] : []
+       ${countFilter}`,
+      countParams
     ),
   ]);
 

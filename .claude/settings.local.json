@@ -108,7 +108,19 @@
       "Bash(npx tsc *)",
       "Bash(npx next *)",
       "Bash(node --test web-app/tests/rbac.test.mjs)",
-      "Bash(npm test *)"
+      "Bash(npm test *)",
+      "Bash(node -e \"import\\('node:test'\\).then\\(m => console.log\\(typeof m.mock\\)\\)\")",
+      "Bash(node -e \"import\\('node:test'\\).then\\(m => console.log\\(Object.keys\\(m.mock\\)\\)\\)\")",
+      "Bash(node --input-type=module)",
+      "Bash(pg_isready -h 127.0.0.1 -p 5433)",
+      "Bash(psql \"postgresql://riskapp:riskapp_secret@127.0.0.1:5433/riskscoredb\" -c \"\\\\dt\")",
+      "Bash(psql \"postgresql://riskapp:riskapp_secret@127.0.0.1:5433/riskscoredb\" -c \"SELECT id FROM networks LIMIT 3;\")",
+      "Bash(psql \"postgresql://riskapp:riskapp_secret@127.0.0.1:5433/riskscoredb\" -c \"SELECT id, code FROM networks;\")",
+      "Bash(psql \"postgresql://riskapp:riskapp_secret@127.0.0.1:5433/riskscoredb\" -c \"\\\\d analysis_results\")",
+      "Bash(psql \"postgresql://riskapp:riskapp_secret@127.0.0.1:5433/riskscoredb\" -c \"\\\\d graph_edges\")",
+      "Bash(node --test web-app/tests/db-history.test.mjs)",
+      "Bash(node --test tests/api-history-logic.test.mjs tests/export-ui.test.mjs)",
+      "Bash(echo \"tsc_exit:$?\")"
     ]
   }
 }
