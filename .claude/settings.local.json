@@ -98,7 +98,9 @@
       "Bash(kubectl rollout *)",
       "Bash(curl -i -sS -X POST http://127.0.0.1:8000/api/analyze -H 'content-type: application/json' -d '{\"network\":\"ETH\",\"address\":\"0x3314Fb492a5d205A601f2A0521fAFbD039502Fc3\",\"depth\":2,\"tx_limit\":200,\"period_days\":50}')",
       "Bash(kubectl -n risk-score-app logs -l app=analytics-service --tail=50)",
-      "Bash(python3 -m pytest tests/test_graph_builder_resilience.py -q)"
+      "Bash(python3 -m pytest tests/test_graph_builder_resilience.py -q)",
+      "Bash(python3 -m pytest tests/test_spec_alignment.py -v)",
+      "Bash(kubectl exec *)"
     ]
   }
 }

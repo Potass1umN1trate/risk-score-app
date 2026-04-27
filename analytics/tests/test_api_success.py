@@ -340,3 +340,74 @@ class TestAnalyzeMLPath:
 
     def test_response_has_analyzed_at(self, resp):
         assert resp.json()["analyzed_at"]
+
+
+# ── /api/analyze — TON success path ──────────────────────────────────────────
+
+# Valid 48-char TON base64url address (accepted by the TON address validator).
+_TON_ADDR = "EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM98xKb"
+
+
+class TestAnalyzeTONMLPath:
+    """
+    Regression guard for TON persistence failure.
+
+    Before the live staging DB fix, TON analysis failed at repo.save_analysis
+    with: ValueError: Unknown network code 'TON' — cannot persist analysis
+    because the networks table lacked a 'TON' row.
+
+    This test exercises the full /api/analyze path for TON using the same
+    mock strategy as TestAnalyzeMLPath.  All DB and blockchain calls are
+    patched; no Postgres, blockchain API, or model artifact is required.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _patches(self, api_graph_result):
+        patches = _analyze_patches(
+            graph_result=api_graph_result,
+            flagged_dict={},
+            root_flag_dict=None,
+        )
+        _apply_patches(patches)
+        yield
+        _exit_patches(patches)
+
+    @pytest.fixture
+    def resp(self, client):
+        return client.post(
+            "/api/analyze",
+            json={"address": _TON_ADDR, "network": "TON"},
+        )
+
+    def test_returns_200(self, resp):
+        assert resp.status_code == 200
+
+    def test_network_is_ton(self, resp):
+        assert resp.json()["network"] == "TON"
+
+    def test_scoring_method_is_ml_model(self, resp):
+        assert resp.json()["scoring_method"] == "ml_model"
+
+    def test_risk_level_is_valid(self, resp):
+        assert resp.json()["risk_level"] in {"LOW", "MEDIUM", "HIGH"}
+
+    def test_risk_score_in_range(self, resp):
+        score = resp.json()["risk_score"]
+        assert 0.0 <= score <= 100.0
+
+    def test_response_has_request_id(self, resp):
+        assert resp.json()["request_id"]
+
+    def test_response_has_result_id(self, resp):
+        assert resp.json()["result_id"] == _FAKE_RESULT_ID
+
+    def test_features_populated(self, resp):
+        features = resp.json()["features"]
+        assert isinstance(features, dict)
+        assert len(features) == 27
+
+    def test_flag_type_is_null(self, resp):
+        assert resp.json()["flag_type"] is None
+
+    def test_factors_field_exists(self, resp):
+        assert "factors" in resp.json()

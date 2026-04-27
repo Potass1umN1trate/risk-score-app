@@ -287,6 +287,67 @@ async def test_mark_request_failed_persists_failure_without_result(pg_pool):
 
 
 @pytest.mark.asyncio
+async def test_ton_network_row_exists_and_supports_flagged_lookup(pg_pool):
+    """
+    Regression guard for the TON persistence failure:
+      ValueError: Unknown network code 'TON' — cannot persist analysis
+
+    Root cause: live staging DB lacked a 'TON' row in the networks table because
+    the initdb ConfigMap only runs on first volume initialization. The seed SQL
+    already contains TON; existing DBs need a one-time idempotent INSERT.
+
+    This test verifies that after the fix, TON network_id can be resolved by
+    the repository and a flagged-address round-trip works correctly for TON.
+    """
+    # A valid 48-char TON base64url address (same format as the API smoke address)
+    ton_address = "EQAvlWFDxGF2lXm67y4yzC17wYKD9A0guwPkMs1gOsM98xKb"
+    ton_flag_id = str(uuid.uuid4())
+
+    try:
+        ids = await pg_pool.fetchrow(
+            """
+            SELECT
+              (SELECT id FROM networks WHERE code = 'TON') AS ton_network_id,
+              (SELECT id FROM risk_categories WHERE code = 'suspicious') AS suspicious_category_id
+            """
+        )
+        assert ids["ton_network_id"] is not None, (
+            "networks table has no row for code='TON'. "
+            "Run: INSERT INTO networks (code, name) VALUES ('TON', 'The Open Network') ON CONFLICT DO NOTHING;"
+        )
+
+        await pg_pool.execute(
+            """
+            INSERT INTO flagged_addresses (
+                id, network_id, address, risk_category_id, comment, is_active
+            )
+            VALUES ($1, $2, $3, $4, $5, true)
+            """,
+            ton_flag_id,
+            ids["ton_network_id"],
+            ton_address,
+            ids["suspicious_category_id"],
+            "TON integration smoke",
+        )
+
+        ton_flag = await repo.get_address_flag(pg_pool, ton_address, "TON")
+        assert ton_flag is not None, "get_address_flag returned None for flagged TON address"
+        assert ton_flag["flag_type"] == "suspicious"
+        assert ton_flag["risk_level"] in {"LOW", "MEDIUM", "HIGH"}
+
+        flagged_map = await repo.get_flagged_addresses(pg_pool, [ton_address], "TON")
+        assert flagged_map == {ton_address: ["suspicious"]}
+
+        btc_flag = await repo.get_address_flag(pg_pool, ton_address, "BTC")
+        assert btc_flag is None, "TON-flagged address must not appear under BTC"
+
+    finally:
+        await pg_pool.execute(
+            "DELETE FROM flagged_addresses WHERE id = $1", ton_flag_id
+        )
+
+
+@pytest.mark.asyncio
 async def test_flagged_address_lookups_are_network_aware(pg_pool):
     address = _unique_address("flagged")
     btc_flag_id = str(uuid.uuid4())

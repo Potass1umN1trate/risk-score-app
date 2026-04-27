@@ -7,13 +7,21 @@ Covers the four contradictions fixed in this pass:
   C — network-specific address format validation
   D — nullable user_id in analysis request persistence
 
+Also covers:
+  E — networks initdb seed contains all 10 supported network codes
+
 Run with:  pytest analytics/tests/test_spec_alignment.py -v
 """
+
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from app.validators.address import validate_address
+
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+_INITDB_CONFIGMAP = _REPO_ROOT / "k8s" / "postgres" / "initdb-configmap.yaml"
 
 
 # ─── Contradiction C: address format validation ───────────────────────────────
@@ -171,4 +179,61 @@ class TestSaveAnalysisSignature:
         from app.db import repository
         assert hasattr(repository, "get_history_by_user"), (
             "get_history_by_user must exist for user-bound history retrieval"
+        )
+
+
+# ─── E: initdb seed contains all 10 supported network codes ──────────────────
+
+class TestInitdbNetworksSeed:
+    """
+    Verify the initdb SQL seed in k8s/postgres/initdb-configmap.yaml contains
+    all 10 supported network codes.  No Postgres or Docker dependency.
+    """
+
+    _EXPECTED_NETWORKS = {
+        ("BTC",  "Bitcoin"),
+        ("ETH",  "Ethereum"),
+        ("TRX",  "TRON"),
+        ("SOL",  "Solana"),
+        ("BNB",  "BNB Smart Chain"),
+        ("XRP",  "XRP Ledger"),
+        ("LTC",  "Litecoin"),
+        ("DOGE", "Dogecoin"),
+        ("ADA",  "Cardano"),
+        ("TON",  "The Open Network"),
+    }
+
+    @pytest.fixture(scope="class")
+    def seed_sql(self) -> str:
+        text = _INITDB_CONFIGMAP.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        for idx, line in enumerate(lines):
+            if line.strip() == "01_schema.sql: |":
+                block = []
+                for raw in lines[idx + 1:]:
+                    if raw and not raw.startswith("    "):
+                        break
+                    block.append(raw[4:] if raw.startswith("    ") else "")
+                return "\n".join(block)
+        raise AssertionError("01_schema.sql block not found in initdb configmap")
+
+    @pytest.mark.parametrize("code,name", [
+        ("BTC",  "Bitcoin"),
+        ("ETH",  "Ethereum"),
+        ("TRX",  "TRON"),
+        ("SOL",  "Solana"),
+        ("BNB",  "BNB Smart Chain"),
+        ("XRP",  "XRP Ledger"),
+        ("LTC",  "Litecoin"),
+        ("DOGE", "Dogecoin"),
+        ("ADA",  "Cardano"),
+        ("TON",  "The Open Network"),
+    ])
+    def test_network_code_in_seed(self, seed_sql, code, name):
+        assert f"'{code}'" in seed_sql, (
+            f"initdb seed is missing network code '{code}' — "
+            "live staging DBs initialized before this row was added will need a manual INSERT"
+        )
+        assert name in seed_sql, (
+            f"initdb seed is missing network name '{name}' for code '{code}'"
         )
