@@ -120,7 +120,9 @@
       "Bash(psql \"postgresql://riskapp:riskapp_secret@127.0.0.1:5433/riskscoredb\" -c \"\\\\d graph_edges\")",
       "Bash(node --test web-app/tests/db-history.test.mjs)",
       "Bash(node --test tests/api-history-logic.test.mjs tests/export-ui.test.mjs)",
-      "Bash(echo \"tsc_exit:$?\")"
+      "Bash(echo \"tsc_exit:$?\")",
+      "Bash(node --test tests/api-history-logic.test.mjs)",
+      "Bash(node --test tests/db-history.test.mjs)"
     ]
   }
 }

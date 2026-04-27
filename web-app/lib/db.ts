@@ -359,6 +359,16 @@ export async function getAnalysisResult(
   };
 }
 
+export async function patchAnalysisRequestUserId(
+  requestId: string,
+  userId: string
+): Promise<void> {
+  await query(
+    `UPDATE analysis_requests SET user_id = $1 WHERE id = $2 AND user_id IS NULL`,
+    [userId, requestId]
+  );
+}
+
 export async function findUserById(id: string): Promise<AuthUserRecord | null> {
   const result = await query<UserRoleRow>(
     `

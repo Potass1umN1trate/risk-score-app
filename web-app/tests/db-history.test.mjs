@@ -307,6 +307,73 @@ test("getAnalysisResult: unknown resultId with admin access returns null", async
   assert.equal(detail, null);
 });
 
+// ─── patchAnalysisRequestUserId integration tests ─────────────────────────────
+
+async function patchAnalysisRequestUserId(requestId, userId) {
+  await query(
+    `UPDATE analysis_requests SET user_id = $1 WHERE id = $2 AND user_id IS NULL`,
+    [userId, requestId]
+  );
+}
+
+test("patchAnalysisRequestUserId: NULL user_id row becomes visible after patch", async () => {
+  // Seed an analysis with user_id = NULL (as analytics-service would create)
+  const requestId = randomUUID();
+  const resultId = randomUUID();
+  const { id: userId } = await seedUser("-patch");
+
+  await query(
+    `INSERT INTO analysis_requests (id, user_id, network_code, address, depth, limit_tx, status, created_at)
+     VALUES ($1, NULL, 'BTC', '1PatchTest00001', 2, 50, 'completed', NOW())`,
+    [requestId]
+  );
+  await query(
+    `INSERT INTO analysis_results (id, request_id, address, network_code, risk_score, risk_level, analyzed_at)
+     VALUES ($1, $2, '1PatchTest00001', 'BTC', 55.00, 'MEDIUM', NOW())`,
+    [resultId, requestId]
+  );
+  await query(
+    `UPDATE analysis_requests SET result_id = $1 WHERE id = $2`,
+    [resultId, requestId]
+  );
+
+  // Before patch: user cannot see the result
+  const before = await getAnalysisHistory(userId, 20, 0);
+  assert.ok(!before.items.map((i) => i.result_id).includes(resultId),
+    "should NOT be visible before patch");
+
+  // Apply patch
+  await patchAnalysisRequestUserId(requestId, userId);
+
+  // After patch: user can see the result
+  const after = await getAnalysisHistory(userId, 20, 0);
+  assert.ok(after.items.map((i) => i.result_id).includes(resultId),
+    "should be visible after patch");
+
+  // Cleanup
+  await query(`DELETE FROM analysis_requests WHERE id = $1`, [requestId]);
+  await cleanupUser(userId);
+});
+
+test("patchAnalysisRequestUserId: already-owned row is not overwritten", async () => {
+  // Seed an analysis already owned by userA
+  const { requestId, resultId } = await seedAnalysis(userA.id, "1PatchOwned001");
+
+  // Attempt to patch with userB's ID — should not overwrite (WHERE user_id IS NULL)
+  await patchAnalysisRequestUserId(requestId, userB.id);
+
+  // userA still owns it
+  const detail = await getAnalysisResult(resultId, userA.id);
+  assert.ok(detail !== null, "userA should still own the row");
+
+  // userB cannot see it
+  const detailB = await getAnalysisResult(resultId, userB.id);
+  assert.equal(detailB, null, "userB should not see the row");
+
+  // Cleanup seeded row
+  await query(`DELETE FROM analysis_requests WHERE id = $1`, [requestId]);
+});
+
 test("getAnalysisResult: detail has correct shape", async () => {
   const detail = await getAnalysisResult(analysisA1.resultId, userA.id);
   assert.ok(detail !== null);

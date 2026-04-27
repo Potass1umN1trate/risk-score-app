@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { authorizeFreshUser } from "@/lib/authz";
+import { patchAnalysisRequestUserId } from "@/lib/db";
 
 const ANALYTICS_SERVICE_URL = process.env.ANALYTICS_SERVICE_URL;
 
@@ -76,5 +77,16 @@ export async function POST(req: NextRequest) {
   }
 
   const data = await upstream.json();
+
+  // Backfill user_id on the analysis_requests row created by analytics-service.
+  // The analytics-service runs without web-app auth context so it always writes
+  // user_id = NULL. Patch it here now that we have the request_id and the
+  // authenticated user's ID. Only fires on success (2xx) with a valid request_id.
+  if (upstream.ok && typeof data?.request_id === "string" && authz.user?.id) {
+    patchAnalysisRequestUserId(data.request_id, authz.user.id).catch(() => {
+      // Non-fatal: history will simply not show this analysis for the user.
+    });
+  }
+
   return NextResponse.json(data, { status: upstream.status });
 }

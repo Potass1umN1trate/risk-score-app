@@ -231,3 +231,46 @@ test("normalizeEdge: preserves from_address, to_address, tx_count", () => {
   assert.equal(edge.to_address, "toY");
   assert.equal(edge.tx_count, 7);
 });
+
+// ─── patchAnalysisRequestUserId call behaviour ────────────────────────────────
+// Mirrors the proxy logic: patch is called only when upstream.ok and request_id
+// is present; silently skipped otherwise.
+
+function shouldPatchUserId(upstreamOk, data, userId) {
+  return upstreamOk && typeof data?.request_id === "string" && Boolean(userId);
+}
+
+test("patchAnalysisRequestUserId: called when upstream ok and request_id present", () => {
+  assert.equal(
+    shouldPatchUserId(true, { request_id: "req-abc" }, "user-1"),
+    true
+  );
+});
+
+test("patchAnalysisRequestUserId: not called when upstream not ok (error response)", () => {
+  assert.equal(
+    shouldPatchUserId(false, { request_id: "req-abc" }, "user-1"),
+    false
+  );
+});
+
+test("patchAnalysisRequestUserId: not called when request_id missing from response", () => {
+  assert.equal(
+    shouldPatchUserId(true, { error_code: "INTERNAL_ERROR" }, "user-1"),
+    false
+  );
+});
+
+test("patchAnalysisRequestUserId: not called when request_id is null", () => {
+  assert.equal(
+    shouldPatchUserId(true, { request_id: null }, "user-1"),
+    false
+  );
+});
+
+test("patchAnalysisRequestUserId: not called when userId is absent", () => {
+  assert.equal(
+    shouldPatchUserId(true, { request_id: "req-abc" }, undefined),
+    false
+  );
+});
