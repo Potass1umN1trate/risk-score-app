@@ -57,7 +57,25 @@
       "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD~1 HEAD)",
       "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD~1 HEAD -- analytics/ k8s/analytics/ k8s/postgres/)",
       "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD --name-only)",
-      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD -- .claude/settings.local.json .gitignore)"
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD -- .claude/settings.local.json .gitignore)",
+      "Bash(kubectl get *)",
+      "Bash(sudo k3s *)",
+      "Bash(awk '{print $1}')",
+      "Bash(echo \"PF_PID=$!\")",
+      "Bash(curl -sS http://127.0.0.1:8000/health)",
+      "Bash(echo \"WEBAPP_PID=$!\")",
+      "Bash(curl -sS -o /dev/null -w \"HTTP %{http_code}\" http://localhost:3000/analyze)",
+      "Bash(curl -sS -o /dev/null -w \"HTTP %{http_code}\" http://10.0.2.194:3000/analyze)",
+      "Bash(curl -i -sS -X POST http://localhost:3000/api/analyze -H 'Content-Type: application/json' -d '{\"address\":\"1BoatSLRHtKNngkdXEeobR76b53LETtpyT\",\"network\":\"FAKENET\",\"depth\":2,\"tx_limit\":10}')",
+      "Bash(curl -i -sS -X POST http://localhost:3000/api/analyze -H 'Content-Type: application/json' -d '{\"address\":\"INVALID_ADDRESS_XYZ\",\"network\":\"BTC\",\"depth\":2,\"tx_limit\":10}')",
+      "Bash(kill 761769)",
+      "Bash(curl -i -sS -X POST http://localhost:3000/api/analyze -H 'Content-Type: application/json' -d '{\"address\":\"1BoatSLRHtKNngkdXEeobR76b53LETtpyT\",\"network\":\"BTC\",\"depth\":2,\"tx_limit\":10}')",
+      "Bash(grep -o '.\\\\{0,60\\\\}127\\\\.0\\\\.0\\\\.1:8000.\\\\{0,60\\\\}\\\\|.\\\\{0,60\\\\}analytics-service.\\\\{0,60\\\\}' /home/ubuntu/risk-score-crypto-app/risk-score-app/web-app/.next/static/chunks/app/analyze/page.js)",
+      "Bash(grep -o '.\\\\{0,80\\\\}ANALYTICS_SERVICE_URL.\\\\{0,80\\\\}' /home/ubuntu/risk-score-crypto-app/risk-score-app/web-app/.next/static/chunks/app/analyze/page.js)",
+      "Bash(kill 761976 762978)",
+      "Bash(kill 762005)",
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD)",
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD -- .claude/settings.local.json)"
     ]
   }
 }

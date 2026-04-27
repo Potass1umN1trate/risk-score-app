@@ -14,6 +14,7 @@
 - [x] `web-app/app/page.tsx` — minimal landing page with link to `/analyze`
 - [x] `web-app/.env.example` — documents `ANALYTICS_SERVICE_URL` for local (`http://127.0.0.1:8000`) and k8s in-cluster (`http://analytics-service:8000`) use
 - [x] Global CSS with dark theme, no external UI library
+- [x] Local web-app smoke verified (2026-04-27): dev server on `0.0.0.0:3000` via `npm run dev -- --hostname 0.0.0.0`; `ANALYTICS_SERVICE_URL` loaded from `.env.local`, confirmed server-side only (not present in client JS bundles); `/api/analyze` proxy success path returns HTTP 200 with `risk_score`, `risk_level`, `request_id`, `result_id`, `scoring_method=ml_model`, `model_version=universal_xgboost_v1`, 27 features, 2 factors; `UNSUPPORTED_NETWORK` returns HTTP 400 with `request_id=null`; `INVALID_ADDRESS` returns HTTP 400 with `request_id=null`; service-unavailable returns HTTP 500 `INTERNAL_ERROR` with no stack trace; browser renders result panel, inline address error, and banner error correctly; browser calls `/api/analyze` proxy only, never `127.0.0.1:8000` directly
 
 ## NOT Implemented ❌
 - [ ] Frontend UI: authorization pages, main menu, history page, flagged-address pages
