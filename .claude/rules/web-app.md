@@ -6,14 +6,19 @@
 ---
 
 ## Implemented ✅
-- [ ] Fill after reviewing `web-app/` directory
+- [x] Next.js 15.5.15 project scaffold — App Router, TypeScript strict mode, Node.js 22 LTS, npm
+- [x] `web-app/lib/analytics.ts` — typed analytics-service client; defines `AnalyzeRequest`, `AnalyzeResponse`, `NodeOut`, `EdgeOut`, `RiskFactor`, `AnalyticsErrorResponse`, known `AnalyticsErrorCode` values; `submitAnalysis()` browser helper posts to web-app `/api/analyze` proxy (never directly to analytics-service)
+- [x] `web-app/app/api/analyze/route.ts` — server-side proxy `POST /api/analyze`; reads `ANALYTICS_SERVICE_URL` env var; forwards request to analytics-service; passes status code through; returns structured `INTERNAL_ERROR` on unreachable service; never exposes raw stack traces
+- [x] `web-app/app/analyze/page.tsx` — analysis form (address, network, depth, tx_limit, optional period_days); client-side validation before submit; loading state; result rendering (risk_score, risk_level, scoring_method, model_version, flag_type, factors, nodes table, edges table with first_seen/last_seen, ML features table, analyzed_at)
+- [x] Structured error handling by `error_code` — `INVALID_ADDRESS` → address field error; `UNSUPPORTED_NETWORK` → network field error; `BLOCKCHAIN_RATE_LIMITED` / `BLOCKCHAIN_UNAVAILABLE` → warning banner; `INVALID_REQUEST` / `INTERNAL_ERROR` / unknown → error banner; `detail` string is never parsed for UI logic
+- [x] `web-app/app/page.tsx` — minimal landing page with link to `/analyze`
+- [x] `web-app/.env.example` — documents `ANALYTICS_SERVICE_URL` for local (`http://127.0.0.1:8000`) and k8s in-cluster (`http://analytics-service:8000`) use
+- [x] Global CSS with dark theme, no external UI library
 
 ## NOT Implemented ❌
-- [ ] Frontend UI: authorization pages, main menu, analysis page, report view, history page, flagged-address pages
-- [ ] Web-app REST API layer for browser-facing operations
-- [ ] Analytics-service client: submit analysis requests and handle structured responses
-- [ ] Structured analysis error handling by `error_code`
-- [ ] Report generation and export from analysis result
+- [ ] Frontend UI: authorization pages, main menu, history page, flagged-address pages
+- [ ] Report export to file
+- [ ] Web-app REST API for history, flagged-address management, user management, audit log, system settings
 - [ ] Analysis history: own history for user/moderator, all history for admin
 - [ ] Re-open saved analysis result without recomputation
 - [ ] NextAuth.js auth: email+password and GitHub OAuth

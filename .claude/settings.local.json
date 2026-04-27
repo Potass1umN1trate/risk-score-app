@@ -41,7 +41,23 @@
       "Bash(python -m pytest tests/test_scorer.py -v)",
       "Bash(python3 -m pytest tests/test_scorer.py -v)",
       "Bash(python -m pytest tests/test_api_success.py -v)",
-      "Bash(python3 -m pytest tests/test_api_success.py -v)"
+      "Bash(python3 -m pytest tests/test_api_success.py -v)",
+      "Bash(npm --version)",
+      "Read(//usr/bin/**)",
+      "Read(//usr/local/nvm/versions/**)",
+      "Read(//home/ubuntu/.nvm/versions/**)",
+      "Bash(curl -fsSL https://deb.nodesource.com/setup_22.x)",
+      "Bash(sudo -E bash -)",
+      "Bash(sudo apt-get *)",
+      "Bash(npm install *)",
+      "Bash(npm show *)",
+      "Bash(python3 -c \"import sys,json; vs=[v for v in json.load\\(sys.stdin\\) if v.startswith\\('15.'\\)]; print\\(vs[-5:]\\)\")",
+      "Bash(npm audit *)",
+      "Bash(npm run *)",
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD~1 HEAD)",
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD~1 HEAD -- analytics/ k8s/analytics/ k8s/postgres/)",
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD --name-only)",
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD -- .claude/settings.local.json .gitignore)"
     ]
   }
 }
