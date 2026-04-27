@@ -37,6 +37,7 @@
 - [ ] Admin: audit log view
 - [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
+- [ ] Fix transaction graph/Sankey address normalization and Sankey empty-state bug
 
 ---
 
