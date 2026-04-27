@@ -75,7 +75,15 @@
       "Bash(kill 761976 762978)",
       "Bash(kill 762005)",
       "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD)",
-      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD -- .claude/settings.local.json)"
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff HEAD -- .claude/settings.local.json)",
+      "Bash(curl -s http://localhost:3000/)",
+      "Bash(curl -s -X POST http://localhost:3000/api/analyze -H 'Content-Type: application/json' -d '{\"address\":\"1BoatSLRHtKNngkdXEeobR76b53LETtpyT\",\"network\":\"BTC\",\"depth\":1,\"tx_limit\":5,\"period_days\":30}')",
+      "Bash(curl -s -X POST http://localhost:3000/api/analyze -H 'Content-Type: application/json' -d '{\"address\":\"TXYZ123456789\",\"network\":\"FAKE\",\"depth\":1,\"tx_limit\":5}')",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(d.get\\('error_code'\\)\\)\")",
+      "Bash(kill %1)",
+      "Bash(node -e ' *)",
+      "Bash(awk '{print $2}')",
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD -- analytics/ k8s/ web-app/app/api/)"
     ]
   }
 }

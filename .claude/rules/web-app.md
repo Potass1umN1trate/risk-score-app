@@ -15,6 +15,8 @@
 - [x] `web-app/.env.example` — documents `ANALYTICS_SERVICE_URL` for local (`http://127.0.0.1:8000`) and k8s in-cluster (`http://analytics-service:8000`) use
 - [x] Global CSS with dark theme, no external UI library
 - [x] Local web-app smoke verified (2026-04-27): dev server on `0.0.0.0:3000` via `npm run dev -- --hostname 0.0.0.0`; `ANALYTICS_SERVICE_URL` loaded from `.env.local`, confirmed server-side only (not present in client JS bundles); `/api/analyze` proxy success path returns HTTP 200 with `risk_score`, `risk_level`, `request_id`, `result_id`, `scoring_method=ml_model`, `model_version=universal_xgboost_v1`, 27 features, 2 factors; `UNSUPPORTED_NETWORK` returns HTTP 400 with `request_id=null`; `INVALID_ADDRESS` returns HTTP 400 with `request_id=null`; service-unavailable returns HTTP 500 `INTERNAL_ERROR` with no stack trace; browser renders result panel, inline address error, and banner error correctly; browser calls `/api/analyze` proxy only, never `127.0.0.1:8000` directly
+- [x] Transaction graph visualization (`web-app/components/TransactionGraph.tsx`) — interactive directed graph using `@xyflow/react` with dagre left-to-right layout; root address shown in indigo, flagged addresses in red, normal addresses in dark surface; directed edges with arrow markers and `N tx` labels; tooltip (title attr) on each edge shows `tx_count`, `total_amount`, `first_seen`, `last_seen`; zoom/pan/fit-view via built-in Controls; long addresses truncated to 8+6 chars; fallback visualization node created if edge references an address missing from `nodes`; empty state renders safe message when `edges.length === 0`; loaded via `next/dynamic` with `ssr: false`
+- [x] Sankey transaction-flow diagram (`web-app/components/SankeyDiagram.tsx`) — SVG Sankey using `d3-sankey`; source/target = from_address/to_address; flow value = `total_amount` when > 0 else `tx_count`; parallel edges between same address pair collapsed into one link; root address in indigo, flagged in red, normal in slate; native SVG `<title>` on each link exposes `tx_count`, `total_amount`, `first_seen`, `last_seen` on hover; responsive width via `ResizeObserver`; legend for root/flagged/normal; empty state when `edges.length === 0`; loaded via `next/dynamic` with `ssr: false`
 
 ## NOT Implemented ❌
 - [ ] Frontend UI: authorization pages, main menu, history page, flagged-address pages
@@ -35,8 +37,6 @@
 - [ ] Admin: audit log view
 - [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
-- [ ] Transaction graph visualization: interactive address-node graph with directed transaction edges
-- [ ] Sankey transaction-flow diagram: address/value flow visualization based on analysis edges
 
 ---
 
@@ -108,6 +108,15 @@ The menu must not show actions unavailable to the current role, but backend/API 
   - feature summary where useful.
 - Web-app creates a report view from the returned analysis result.
 - Analysis result is saved in history by backend persistence flow.
+- Web-app visualizes the transaction graph:
+  - root address highlighted;
+  - counterparties shown as connected nodes;
+  - directed edges show transaction direction;
+  - edge labels/tooltips show tx_count, total_amount, first_seen, last_seen.
+- Web-app visualizes transaction flow as a Sankey diagram:
+  - source/target are addresses;
+  - flow weight is based on total_amount or tx_count;
+  - root address and flagged addresses are visually distinguishable.
 - User can export the report to a file.
 
 ### Analytics-Service Error Handling

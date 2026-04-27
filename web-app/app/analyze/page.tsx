@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import dynamic from "next/dynamic";
 import {
   SUPPORTED_NETWORKS,
   submitAnalysis,
@@ -9,6 +10,9 @@ import {
   type AnalyticsErrorResponse,
   type RiskFactor,
 } from "@/lib/analytics";
+
+const TransactionGraph = dynamic(() => import("@/components/TransactionGraph"), { ssr: false });
+const SankeyDiagram = dynamic(() => import("@/components/SankeyDiagram"), { ssr: false });
 
 // ─── Form validation ──────────────────────────────────────────────────────────
 
@@ -281,6 +285,40 @@ function ResultPanel({ result }: { result: AnalyzeResponse }) {
           <EdgesTable edges={result.edges} />
         </div>
       )}
+
+      {/* Transaction Graph */}
+      <div className="card">
+        <p className="section-title">Transaction Graph</p>
+        {result.edges.length === 0 ? (
+          <p style={{ color: "var(--color-muted)", fontSize: "0.9rem" }}>
+            No transaction edges found — visualization is not available.
+          </p>
+        ) : (
+          <TransactionGraph
+            nodes={result.nodes}
+            edges={result.edges}
+            rootAddress={result.address}
+          />
+        )}
+      </div>
+
+      {/* Sankey Diagram */}
+      <div className="card">
+        <p className="section-title">Transaction Flow</p>
+        {result.edges.length === 0 ? (
+          <p style={{ color: "var(--color-muted)", fontSize: "0.9rem" }}>
+            No transaction edges found — visualization is not available.
+          </p>
+        ) : (
+          <SankeyDiagram
+            edges={result.edges}
+            rootAddress={result.address}
+            flaggedAddresses={result.nodes
+              .filter((n) => n.is_flagged)
+              .map((n) => n.address)}
+          />
+        )}
+      </div>
 
       {/* Features */}
       {hasFeatures && (

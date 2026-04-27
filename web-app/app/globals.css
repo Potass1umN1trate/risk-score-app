@@ -303,7 +303,56 @@ tr:last-child td {
   to { transform: rotate(360deg); }
 }
 
+/* Transaction graph */
+.graph-container {
+  height: 420px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+}
+
+/* ReactFlow dark overrides */
+.graph-container .react-flow__attribution { display: none; }
+.graph-container .react-flow__controls {
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+}
+.graph-container .react-flow__controls-button {
+  background: var(--color-surface);
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-muted);
+  fill: var(--color-muted);
+}
+.graph-container .react-flow__controls-button:hover {
+  background: var(--color-border);
+}
+
+/* Sankey diagram */
+.sankey-container {
+  width: 100%;
+}
+.sankey-legend {
+  display: flex;
+  gap: 1.25rem;
+  margin-top: 0.6rem;
+  font-size: 0.78rem;
+}
+.sankey-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.sankey-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+}
+
 @media (max-width: 600px) {
   .form-grid { grid-template-columns: 1fr; }
   .stat-row  { grid-template-columns: 1fr 1fr; }
+  .graph-container { height: 300px; }
 }
