@@ -91,7 +91,14 @@
       "Bash(curl -s http://localhost:3000/analyze)",
       "Bash(curl -s http://localhost:8000/health)",
       "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('edges:', len\\(d.get\\('edges',[]\\)\\), 'root:', d.get\\('address'\\)\\); [print\\(' ', e['from_address'][:10], '->', e['to_address'][:10], 'tx:', e['tx_count']\\) for e in d.get\\('edges',[]\\)]\")",
-      "Bash(kill 928424)"
+      "Bash(kill 928424)",
+      "Bash(python3 -m pytest tests/test_graph_builder_resilience.py -v)",
+      "Bash(docker build *)",
+      "Bash(docker save *)",
+      "Bash(kubectl rollout *)",
+      "Bash(curl -i -sS -X POST http://127.0.0.1:8000/api/analyze -H 'content-type: application/json' -d '{\"network\":\"ETH\",\"address\":\"0x3314Fb492a5d205A601f2A0521fAFbD039502Fc3\",\"depth\":2,\"tx_limit\":200,\"period_days\":50}')",
+      "Bash(kubectl -n risk-score-app logs -l app=analytics-service --tail=50)",
+      "Bash(python3 -m pytest tests/test_graph_builder_resilience.py -q)"
     ]
   }
 }

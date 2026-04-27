@@ -14,6 +14,7 @@ Why NetworkX DiGraph instead of MultiDiGraph?
 """
 
 import asyncio
+import logging
 from dataclasses import dataclass, field
 from collections import deque
 
@@ -22,6 +23,8 @@ import networkx as nx
 from app.blockchain.registry import get_fetcher
 from app.blockchain.base import Transaction, BlockchainError
 from app.validators.address import normalize_address_for_network
+
+logger = logging.getLogger(__name__)
 
 
 # ─── Return type definitions ───────────────────────────────────────────────────
@@ -159,13 +162,28 @@ class GraphBuilder:
 
             async def _fetch_one(addr: str) -> tuple[str, list[Transaction]]:
                 async with sem:
-                    # BlockchainError subclasses propagate to build() caller;
-                    # unexpected exceptions are also left to propagate.
                     txs = await fetcher.fetch(addr, limit=self.tx_limit_per_address)
                     return addr, txs
 
             tasks = [_fetch_one(addr) for addr, _ in to_fetch]
-            results: list[tuple[str, list[Transaction]]] = await asyncio.gather(*tasks)
+            # return_exceptions=True so one failing branch doesn't cancel others;
+            # root failures are re-raised below, non-root failures are skipped.
+            raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+
+            results: list[tuple[str, list[Transaction]]] = []
+            for (addr, _), outcome in zip(to_fetch, raw_results):
+                if isinstance(outcome, BaseException):
+                    addr_depth = node_map[addr].depth
+                    if addr_depth == 0 or not isinstance(outcome, BlockchainError):
+                        # Root failures and unexpected errors are always fatal.
+                        raise outcome
+                    # Non-root provider failure — skip this branch and continue BFS.
+                    logger.warning(
+                        "Skipping non-root address %s (depth=%d): %s: %s",
+                        addr, addr_depth, type(outcome).__name__, outcome,
+                    )
+                    continue
+                results.append(outcome)
 
             for addr, txs in results:
                 fetched.add(addr)
