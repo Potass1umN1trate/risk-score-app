@@ -16,7 +16,7 @@
 - [x] Global CSS with dark theme, no external UI library
 - [x] Local web-app smoke verified (2026-04-27): dev server on `0.0.0.0:3000` via `npm run dev -- --hostname 0.0.0.0`; `ANALYTICS_SERVICE_URL` loaded from `.env.local`, confirmed server-side only (not present in client JS bundles); `/api/analyze` proxy success path returns HTTP 200 with `risk_score`, `risk_level`, `request_id`, `result_id`, `scoring_method=ml_model`, `model_version=universal_xgboost_v1`, 27 features, 2 factors; `UNSUPPORTED_NETWORK` returns HTTP 400 with `request_id=null`; `INVALID_ADDRESS` returns HTTP 400 with `request_id=null`; service-unavailable returns HTTP 500 `INTERNAL_ERROR` with no stack trace; browser renders result panel, inline address error, and banner error correctly; browser calls `/api/analyze` proxy only, never `127.0.0.1:8000` directly
 - [x] Transaction graph visualization (`web-app/components/TransactionGraph.tsx`) — interactive directed graph using `@xyflow/react` with dagre left-to-right layout; root address shown in indigo, flagged addresses in red, normal addresses in dark surface; directed edges with arrow markers and `N tx` labels; tooltip (title attr) on each edge shows `tx_count`, `total_amount`, `first_seen`, `last_seen`; zoom/pan/fit-view via built-in Controls; long addresses truncated to 8+6 chars; fallback visualization node created if edge references an address missing from `nodes`; empty state renders safe message when `edges.length === 0`; loaded via `next/dynamic` with `ssr: false`
-- [x] Sankey transaction-flow diagram (`web-app/components/SankeyDiagram.tsx`) — SVG Sankey using `d3-sankey`; source/target = from_address/to_address using stable numeric array indexes (no `.nodeId()` override); flow value = `total_amount` when > 0 else `tx_count`; parallel edges between same address pair collapsed into one link; root address in indigo, flagged in red, normal in slate; native SVG `<title>` on each link exposes `tx_count`, `total_amount`, `first_seen`, `last_seen` on hover; responsive width via `ResizeObserver`; legend for root/flagged/normal; distinct empty state when `edges.length === 0` vs layout-error fallback; loaded via `next/dynamic` with `ssr: false`
+- [x] Sankey transaction-flow diagram (`web-app/components/SankeyDiagram.tsx`) — root-centered depth-1 custom SVG flow diagram (no d3-sankey); incoming counterparties on the left, analyzed root address as a large centered rectangle, outgoing counterparties on the right; only root-adjacent edges are rendered (incoming: `edge.to_address == rootAddress`; outgoing: `edge.from_address == rootAddress`); deeper non-root edges ignored regardless of analysis depth; addresses compared after `trim().toLowerCase()`, original address preserved for display labels; parallel edges per counterparty collapsed by summing `tx_count` and `total_amount` and taking min/max timestamps; flow stroke width scaled by `sqrt(tx_count)` clamped to [2, 24] — `total_amount` does not affect width; `total_amount` shown only in SVG `<title>` tooltip alongside `tx_count`, `first_seen`, `last_seen`; same counterparty that both sends and receives appears in both left and right columns as separate entries; counterparties sorted descending by `tx_count`, capped at 20 per side; root/flagged/normal visual distinction maintained; responsive width via `ResizeObserver`; distinct empty state `"No root-adjacent transaction edges found — Sankey flow is not available."` when no root-adjacent edges; layout-error fallback `"Transaction flow layout could not be generated."`; legend for root/flagged/normal/incoming flow/outgoing flow; loaded via `next/dynamic` with `ssr: false`
 
 ## NOT Implemented ❌
 - [ ] Frontend UI: authorization pages, main menu, history page, flagged-address pages
@@ -37,7 +37,6 @@
 - [ ] Admin: audit log view
 - [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
-- [ ] Fix transaction graph/Sankey address normalization and Sankey empty-state bug
 
 ---
 
@@ -119,6 +118,11 @@ The menu must not show actions unavailable to the current role, but backend/API 
   - flow weight is based on total_amount or tx_count;
   - root address and flagged addresses are visually distinguishable.
 - User can export the report to a file.
+- Sankey shows only depth-1 root counterparties.
+- Root address is a large centered node.
+- Incoming flows are rendered from the left into root.
+- Outgoing flows are rendered from root to the right.
+- Flow width is based on aggregated tx_count per counterparty, not total_amount.
 
 ### Analytics-Service Error Handling
 

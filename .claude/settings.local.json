@@ -86,7 +86,12 @@
       "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD -- analytics/ k8s/ web-app/app/api/)",
       "Bash(python3 -m pytest tests/test_graph_builder_evm.py -v)",
       "Bash(python3 -m pytest tests/test_feature_extraction.py -v)",
-      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD -- components/ analytics/ k8s/ app/api/)"
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD -- components/ analytics/ k8s/ app/api/)",
+      "Bash(echo \"PID=$!\")",
+      "Bash(curl -s http://localhost:3000/analyze)",
+      "Bash(curl -s http://localhost:8000/health)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\('edges:', len\\(d.get\\('edges',[]\\)\\), 'root:', d.get\\('address'\\)\\); [print\\(' ', e['from_address'][:10], '->', e['to_address'][:10], 'tx:', e['tx_count']\\) for e in d.get\\('edges',[]\\)]\")",
+      "Bash(kill 928424)"
     ]
   }
 }
