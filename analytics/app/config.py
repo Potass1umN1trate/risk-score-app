@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     blockfrost_api_key: str = ""
     toncenter_api_key: str = ""
     moralis_api_key: str = ""
+    blockcypher_api_token: str = ""
 
     class Config:
         env_file = ".env"

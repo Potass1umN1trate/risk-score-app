@@ -2,6 +2,8 @@ import logging
 
 import httpx
 
+from app.config import settings
+
 from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
@@ -35,9 +37,13 @@ class DogecoinFetcher(BlockchainFetcher):
         limit: int,
     ) -> list[dict]:
         try:
+            params = {"limit": min(limit, 50)}
+            if settings.blockcypher_api_token:
+                params["token"] = settings.blockcypher_api_token
+
             resp = await client.get(
                 f"{_BLOCKCYPHER_URL}/{address}/full",
-                params={"limit": min(limit, 50)},
+                params=params,
             )
             if resp.status_code == 429:
                 raise BlockchainRateLimitedError(f"BlockCypher DOGE rate-limited (HTTP 429) for {address}")

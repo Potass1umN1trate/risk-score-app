@@ -287,6 +287,66 @@ async def test_mark_request_failed_persists_failure_without_result(pg_pool):
 
 
 @pytest.mark.asyncio
+async def test_doge_network_row_exists_and_supports_flagged_lookup(pg_pool):
+    """
+    Regression guard for the DOGE persistence failure:
+      ValueError: Unknown network code 'DOGE' — cannot persist analysis
+
+    Root cause: live staging DB lacked a 'DOGE' row in the networks table
+    even though the initdb ConfigMap seed already contains DOGE. Existing DBs
+    initialized before the row was present need a one-time idempotent INSERT.
+
+    This test verifies that after the fix, DOGE network_id can be resolved by
+    the repository and a flagged-address round-trip works correctly for DOGE.
+    """
+    doge_address = "DH5yaieqoZN36fDVciNyRueRGvGLR3mr7L"
+    doge_flag_id = str(uuid.uuid4())
+
+    try:
+        ids = await pg_pool.fetchrow(
+            """
+            SELECT
+              (SELECT id FROM networks WHERE code = 'DOGE') AS doge_network_id,
+              (SELECT id FROM risk_categories WHERE code = 'suspicious') AS suspicious_category_id
+            """
+        )
+        assert ids["doge_network_id"] is not None, (
+            "networks table has no row for code='DOGE'. "
+            "Run: INSERT INTO networks (code, name) VALUES ('DOGE', 'Dogecoin') ON CONFLICT DO NOTHING;"
+        )
+
+        await pg_pool.execute(
+            """
+            INSERT INTO flagged_addresses (
+                id, network_id, address, risk_category_id, comment, is_active
+            )
+            VALUES ($1, $2, $3, $4, $5, true)
+            """,
+            doge_flag_id,
+            ids["doge_network_id"],
+            doge_address,
+            ids["suspicious_category_id"],
+            "DOGE integration smoke",
+        )
+
+        doge_flag = await repo.get_address_flag(pg_pool, doge_address, "DOGE")
+        assert doge_flag is not None, "get_address_flag returned None for flagged DOGE address"
+        assert doge_flag["flag_type"] == "suspicious"
+        assert doge_flag["risk_level"] in {"LOW", "MEDIUM", "HIGH"}
+
+        flagged_map = await repo.get_flagged_addresses(pg_pool, [doge_address], "DOGE")
+        assert flagged_map == {doge_address: ["suspicious"]}
+
+        btc_flag = await repo.get_address_flag(pg_pool, doge_address, "BTC")
+        assert btc_flag is None, "DOGE-flagged address must not appear under BTC"
+
+    finally:
+        await pg_pool.execute(
+            "DELETE FROM flagged_addresses WHERE id = $1", doge_flag_id
+        )
+
+
+@pytest.mark.asyncio
 async def test_ton_network_row_exists_and_supports_flagged_lookup(pg_pool):
     """
     Regression guard for the TON persistence failure:

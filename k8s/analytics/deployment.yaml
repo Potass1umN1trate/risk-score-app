@@ -85,6 +85,12 @@ spec:
                   name: analytics-secret
                   key: MORALIS_API_KEY
                   optional: true
+            - name: BLOCKCYPHER_API_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: analytics-secret
+                  key: BLOCKCYPHER_API_TOKEN
+                  optional: true
           startupProbe:
             httpGet:
               path: /health
