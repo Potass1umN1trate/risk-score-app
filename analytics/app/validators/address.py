@@ -46,6 +46,24 @@ _ADA = re.compile(r"^(addr1[a-z0-9]{50,110}|Ae2[1-9A-HJ-NP-Za-km-z]{50,}|DdzFF[1
 # TON: base64url or bounceable, 48 chars
 _TON = re.compile(r"^[0-9A-Za-z_\-+/]{48}$")
 
+# EVM networks whose addresses are case-insensitive hex (EIP-55 checksum variants
+# must be treated as identical to their lowercase equivalents).
+_EVM_NETWORKS: frozenset[str] = frozenset({"ETH", "BNB"})
+
+
+def normalize_address_for_network(network: str, address: str) -> str:
+    """
+    Return the canonical form of an address for the given network.
+
+    ETH/BNB: strip whitespace and lowercase (EVM addresses are case-insensitive).
+    All other networks: strip whitespace only — casing is meaningful.
+    """
+    stripped = address.strip()
+    if network.upper() in _EVM_NETWORKS:
+        return stripped.lower()
+    return stripped
+
+
 _VALIDATORS: dict[str, re.Pattern] = {
     "BTC":  _BTC,
     "ETH":  _EVM,

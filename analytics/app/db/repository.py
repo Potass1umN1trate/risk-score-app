@@ -19,6 +19,7 @@ import asyncpg
 from app.graph.builder import GraphResult
 from app.graph.features import AddressFeatures
 from app.scoring.base import ScoreResult
+from app.validators.address import normalize_address_for_network
 
 
 # ─── Network ID lookup ────────────────────────────────────────────────────────
@@ -49,6 +50,7 @@ async def get_address_flag(
     Returns a dict with keys {risk_level, flag_type, category_severity}
     if found and active, otherwise None.
     """
+    address = normalize_address_for_network(network_code, address)
     row = await pool.fetchrow(
         """
         SELECT rc.code      AS flag_type,
@@ -101,6 +103,7 @@ async def get_flagged_addresses(
     if not addresses:
         return {}
 
+    addresses = [normalize_address_for_network(network_code, a) for a in addresses]
     rows = await pool.fetch(
         """
         SELECT fa.address, rc.code AS flag_type

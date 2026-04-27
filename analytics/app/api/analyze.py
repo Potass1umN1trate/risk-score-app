@@ -33,7 +33,7 @@ from app.scoring.registry import get_scorer
 from app.scoring.base import ScoreResult, score_to_risk_level
 from app.scoring.factors import build_factors
 from app.db import repository as repo
-from app.validators.address import validate_address
+from app.validators.address import validate_address, normalize_address_for_network
 from app.blockchain.base import BlockchainRateLimitedError, BlockchainUnavailableError
 from app.api.errors import ErrorResponse, _error
 
@@ -117,10 +117,15 @@ async def analyze(body: AnalyzeRequest, request: Request):
     except ValueError:
         return _error(400, "UNSUPPORTED_NETWORK", f"Unsupported network: {body.network!r}")
 
-    # Validate address format before touching the DB or network
+    # Validate address format before touching the DB or network.
+    # Validation runs on the original user-supplied string.
     addr_check = validate_address(body.network, body.address)
     if not addr_check.valid:
         return _error(400, "INVALID_ADDRESS", addr_check.reason or "Invalid address format")
+
+    # Canonicalize: ETH/BNB → lowercase; all other networks → strip only.
+    # Everything downstream uses this canonical form.
+    address = normalize_address_for_network(body.network, body.address)
 
     request_id = str(uuid.uuid4())
     now = datetime.now(timezone.utc)
@@ -138,7 +143,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
         """,
         request_id,
         user_id,
-        body.address,
+        address,
         body.network,
         body.depth,
         body.tx_limit,
@@ -159,7 +164,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
             tx_limit_per_address=body.tx_limit,
         )
         graph_result = await builder.build(
-            root_address=body.address,
+            root_address=address,
             network_code=body.network,
             depth=body.depth,
             since_ts=since_ts,
@@ -172,7 +177,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
         flagged = await repo.get_flagged_addresses(pool, all_addresses, body.network)
 
         # Step 7 — is the KEY address itself in the DB?
-        root_flag = await repo.get_address_flag(pool, body.address, body.network)
+        root_flag = await repo.get_address_flag(pool, address, body.network)
 
         if root_flag is not None:
             # ── Path A: key address found in DB (step 12) ──────────────────
@@ -186,7 +191,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
             features = None
             logger.info(
                 "Address %s/%s found in flagged DB — flag=%s level=%s",
-                body.network, body.address,
+                body.network, address,
                 root_flag["flag_type"], root_flag["risk_level"],
             )
 
@@ -197,7 +202,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
             scoring_method = "ml_model"
             logger.info(
                 "Address %s/%s scored by ML — score=%.1f level=%s",
-                body.network, body.address,
+                body.network, address,
                 score_result.score, score_result.risk_level,
             )
 
@@ -207,7 +212,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
         result_id = await repo.save_analysis(
             pool,
             request_id=request_id,
-            root_address=body.address,
+            root_address=address,
             network_code=body.network,
             graph_result=graph_result,
             features=features,
@@ -221,21 +226,21 @@ async def analyze(body: AnalyzeRequest, request: Request):
         await repo.mark_request_completed(pool, request_id, result_id)
 
     except BlockchainRateLimitedError as exc:
-        logger.warning("Blockchain rate-limited for %s/%s: %s", body.network, body.address, exc)
+        logger.warning("Blockchain rate-limited for %s/%s: %s", body.network, address, exc)
         await repo.mark_request_failed(pool, request_id, f"BLOCKCHAIN_RATE_LIMITED: {exc}")
         return _error(429, "BLOCKCHAIN_RATE_LIMITED",
                       "Blockchain data provider is rate-limiting requests. Retry after a short wait.",
                       request_id)
 
     except BlockchainUnavailableError as exc:
-        logger.error("Blockchain unavailable for %s/%s: %s", body.network, body.address, exc)
+        logger.error("Blockchain unavailable for %s/%s: %s", body.network, address, exc)
         await repo.mark_request_failed(pool, request_id, f"BLOCKCHAIN_UNAVAILABLE: {exc}")
         return _error(502, "BLOCKCHAIN_UNAVAILABLE",
                       "Blockchain data provider is temporarily unavailable. Try again later.",
                       request_id)
 
     except Exception as exc:
-        logger.exception("Analysis failed for %s/%s", body.network, body.address)
+        logger.exception("Analysis failed for %s/%s", body.network, address)
         await repo.mark_request_failed(pool, request_id, type(exc).__name__)
         return _error(500, "INTERNAL_ERROR", "Analysis failed due to an internal error.", request_id)
 
@@ -265,7 +270,7 @@ async def analyze(body: AnalyzeRequest, request: Request):
     return AnalyzeResponse(
         request_id=request_id,
         result_id=result_id,
-        address=body.address,
+        address=address,
         network=body.network,
         risk_score=score_result.score,
         risk_level=score_result.risk_level,

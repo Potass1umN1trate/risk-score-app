@@ -21,6 +21,7 @@ import networkx as nx
 
 from app.blockchain.registry import get_fetcher
 from app.blockchain.base import Transaction, BlockchainError
+from app.validators.address import normalize_address_for_network
 
 
 # ─── Return type definitions ───────────────────────────────────────────────────
@@ -109,6 +110,10 @@ class GraphBuilder:
         """
         fetcher = get_fetcher(network_code)
 
+        # Defensive normalization: ETH/BNB root address must be lowercase so it
+        # matches the lowercase from/to addresses produced by those fetchers.
+        root_address = normalize_address_for_network(network_code, root_address)
+
         G = nx.DiGraph()
         # address → NodeInfo mapping to track already-added nodes
         node_map: dict[str, NodeInfo] = {}
@@ -170,8 +175,10 @@ class GraphBuilder:
                     txs = [tx for tx in txs if tx.timestamp and tx.timestamp >= since_ts]
 
                 for tx in txs:
-                    from_a = tx.from_address
-                    to_a = tx.to_address
+                    # Normalize per-tx addresses defensively; ETH/BNB fetchers
+                    # already lowercase but this guarantees consistency.
+                    from_a = normalize_address_for_network(network_code, tx.from_address)
+                    to_a = normalize_address_for_network(network_code, tx.to_address)
 
                     # Register unknown addresses as new nodes
                     for new_addr in (from_a, to_a):

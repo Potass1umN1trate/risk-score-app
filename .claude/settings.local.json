@@ -83,7 +83,9 @@
       "Bash(kill %1)",
       "Bash(node -e ' *)",
       "Bash(awk '{print $2}')",
-      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD -- analytics/ k8s/ web-app/app/api/)"
+      "Bash(git -C /home/ubuntu/risk-score-crypto-app/risk-score-app diff --name-only HEAD -- analytics/ k8s/ web-app/app/api/)",
+      "Bash(python3 -m pytest tests/test_graph_builder_evm.py -v)",
+      "Bash(python3 -m pytest tests/test_feature_extraction.py -v)"
     ]
   }
 }
