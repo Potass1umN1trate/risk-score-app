@@ -29,11 +29,12 @@ export function requiredRoleForPath(pathname: string): Role | null {
   if (pathname === "/moderator" || pathname.startsWith("/moderator/")) return "moderator";
   if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) return "user";
   if (pathname === "/analyze" || pathname.startsWith("/analyze/")) return "user";
+  if (pathname === "/history" || pathname.startsWith("/history/")) return "user";
 
   if (pathname === "/api/analyze") return "user";
   if (pathname.startsWith("/api/admin/")) return "admin";
   if (pathname.startsWith("/api/moderator/")) return "moderator";
-  if (pathname.startsWith("/api/history/")) return "user";
+  if (pathname === "/api/history" || pathname.startsWith("/api/history/")) return "user";
   if (pathname.startsWith("/api/flagged-addresses/")) return "moderator";
 
   return null;

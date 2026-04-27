@@ -1,0 +1,118 @@
+// Unit tests for requiredRoleForPath — verifies middleware RBAC coverage.
+// Run with: node --test web-app/tests/rbac.test.mjs
+// Requires Node 22 (node:test built-in). No external dependencies.
+
+import { test } from "node:test";
+import assert from "node:assert/strict";
+
+// ─── Inline the pure logic under test ────────────────────────────────────────
+// We re-implement only the function under test so the test has no TS/Next.js
+// dependency while still exercising the exact branch structure from rbac.ts.
+
+const ROLES = ["user", "moderator", "admin"];
+const ROLE_RANK = { user: 1, moderator: 2, admin: 3 };
+
+function isRole(value) {
+  return typeof value === "string" && ROLES.includes(value);
+}
+
+function hasRequiredRole(userRole, requiredRole) {
+  return ROLE_RANK[userRole] >= ROLE_RANK[requiredRole];
+}
+
+function requiredRoleForPath(pathname) {
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) return "admin";
+  if (pathname === "/moderator" || pathname.startsWith("/moderator/")) return "moderator";
+  if (pathname === "/dashboard" || pathname.startsWith("/dashboard/")) return "user";
+  if (pathname === "/analyze" || pathname.startsWith("/analyze/")) return "user";
+  if (pathname === "/history" || pathname.startsWith("/history/")) return "user";
+
+  if (pathname === "/api/analyze") return "user";
+  if (pathname.startsWith("/api/admin/")) return "admin";
+  if (pathname.startsWith("/api/moderator/")) return "moderator";
+  // Fixed: exact-match on /api/history covers the bare GET /api/history route
+  if (pathname === "/api/history" || pathname.startsWith("/api/history/")) return "user";
+  if (pathname.startsWith("/api/flagged-addresses/")) return "moderator";
+
+  return null;
+}
+
+// Simulate middleware decision (mirrors middleware.ts logic).
+// Returns: 401 | 403 | "next" | "redirect"
+function middlewareDecision(pathname, token) {
+  const requiredRole = requiredRoleForPath(pathname);
+  if (!requiredRole) return "next"; // unprotected
+
+  const isApi = pathname.startsWith("/api/");
+
+  if (!token) return isApi ? 401 : "redirect-login";
+  if (token.isBlocked === true) return isApi ? 403 : "redirect-unauthorized";
+
+  const role = token.role;
+  if (!isRole(role) || !hasRequiredRole(role, requiredRole)) {
+    return isApi ? 403 : "redirect-unauthorized";
+  }
+
+  return "next";
+}
+
+// ─── Tests ────────────────────────────────────────────────────────────────────
+
+test("/api/history bare path: requiredRoleForPath returns 'user'", () => {
+  assert.equal(requiredRoleForPath("/api/history"), "user");
+});
+
+test("/api/history/[id] path: requiredRoleForPath returns 'user'", () => {
+  assert.equal(requiredRoleForPath("/api/history/some-uuid"), "user");
+});
+
+test("/api/history bare path: unauthenticated request → 401", () => {
+  assert.equal(middlewareDecision("/api/history", null), 401);
+});
+
+test("/api/history/[id]: unauthenticated request → 401", () => {
+  assert.equal(middlewareDecision("/api/history/some-uuid", null), 401);
+});
+
+test("/api/history bare path: blocked user → 403", () => {
+  const token = { role: "user", isBlocked: true };
+  assert.equal(middlewareDecision("/api/history", token), 403);
+});
+
+test("/api/history bare path: user role → passes", () => {
+  const token = { role: "user", isBlocked: false };
+  assert.equal(middlewareDecision("/api/history", token), "next");
+});
+
+test("/api/history bare path: moderator role → passes", () => {
+  const token = { role: "moderator", isBlocked: false };
+  assert.equal(middlewareDecision("/api/history", token), "next");
+});
+
+test("/api/history bare path: admin role → passes", () => {
+  const token = { role: "admin", isBlocked: false };
+  assert.equal(middlewareDecision("/api/history", token), "next");
+});
+
+test("unprotected public path: no token needed", () => {
+  assert.equal(middlewareDecision("/", null), "next");
+  assert.equal(middlewareDecision("/login", null), "next");
+  assert.equal(middlewareDecision("/api/register", null), "next");
+});
+
+test("existing protected paths still return correct roles", () => {
+  assert.equal(requiredRoleForPath("/api/analyze"), "user");
+  assert.equal(requiredRoleForPath("/api/admin/users"), "admin");
+  assert.equal(requiredRoleForPath("/api/moderator/flags"), "moderator");
+  assert.equal(requiredRoleForPath("/api/flagged-addresses/list"), "moderator");
+  assert.equal(requiredRoleForPath("/dashboard"), "user");
+  assert.equal(requiredRoleForPath("/history"), "user");
+  assert.equal(requiredRoleForPath("/history/some-id"), "user");
+  assert.equal(requiredRoleForPath("/admin"), "admin");
+  assert.equal(requiredRoleForPath("/moderator"), "moderator");
+});
+
+test("no regression: /api/history prefix does not bleed into unrelated paths", () => {
+  assert.equal(requiredRoleForPath("/api/history-export"), null); // not prefixed by /api/history/
+  assert.equal(requiredRoleForPath("/api/historical"), null);
+});

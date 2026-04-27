@@ -28,6 +28,11 @@ export default async function DashboardPage() {
           <span className="menu-desc">Score a blockchain address for risk signals.</span>
         </Link>
 
+        <Link className="menu-item" href="/history">
+          <span className="menu-title">Analysis history</span>
+          <span className="menu-desc">Review past analyses and re-open saved results.</span>
+        </Link>
+
         {hasRequiredRole(role, "moderator") && (
           <Link className="menu-item" href="/moderator">
             <span className="menu-title">Moderator tools</span>

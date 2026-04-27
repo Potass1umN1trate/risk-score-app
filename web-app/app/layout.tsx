@@ -32,6 +32,7 @@ export default async function RootLayout({
                 <>
                   <Link href="/dashboard">Dashboard</Link>
                   <Link href="/analyze">Analyze</Link>
+                  <Link href="/history">History</Link>
                   {role && hasRequiredRole(role, "moderator") && (
                     <Link href="/moderator">Moderator</Link>
                   )}

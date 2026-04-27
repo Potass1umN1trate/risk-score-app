@@ -58,6 +58,7 @@ export const config = {
   matcher: [
     "/dashboard/:path*",
     "/analyze/:path*",
+    "/history/:path*",
     "/admin/:path*",
     "/moderator/:path*",
     "/api/analyze",
