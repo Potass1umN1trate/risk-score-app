@@ -35,6 +35,8 @@
 - [ ] Admin: audit log view
 - [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
+- [ ] Transaction graph visualization: interactive address-node graph with directed transaction edges
+- [ ] Sankey transaction-flow diagram: address/value flow visualization based on analysis edges
 
 ---
 
