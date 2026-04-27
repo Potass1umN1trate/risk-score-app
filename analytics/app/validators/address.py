@@ -8,6 +8,7 @@ Spec requirement: basic validation of selected network and wallet address format
 before analysis begins (contradiction C fix).
 """
 
+import hashlib
 import re
 from typing import NamedTuple
 
@@ -27,6 +28,9 @@ _EVM = re.compile(r"^0x[0-9a-fA-F]{40}$")
 
 # TRX: starts with T, base58, 34 chars total
 _TRX = re.compile(r"^T[1-9A-HJ-NP-Za-km-z]{33}$")
+
+# TRX provider/internal hex form: 21 bytes, represented as 41 + 20-byte address.
+_TRX_HEX = re.compile(r"^41[0-9a-fA-F]{40}$")
 
 # SOL: base58, 32–44 chars
 _SOL = re.compile(r"^[1-9A-HJ-NP-Za-km-z]{32,44}$")
@@ -50,17 +54,57 @@ _TON = re.compile(r"^[0-9A-Za-z_\-+/]{48}$")
 # must be treated as identical to their lowercase equivalents).
 _EVM_NETWORKS: frozenset[str] = frozenset({"ETH", "BNB"})
 
+_BASE58_ALPHABET = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+
+def _base58check_encode(payload: bytes) -> str:
+    checksum = hashlib.sha256(hashlib.sha256(payload).digest()).digest()[:4]
+    raw = payload + checksum
+    value = int.from_bytes(raw, byteorder="big")
+
+    encoded = ""
+    while value:
+        value, remainder = divmod(value, 58)
+        encoded = _BASE58_ALPHABET[remainder] + encoded
+
+    leading_zeroes = len(raw) - len(raw.lstrip(b"\0"))
+    return ("1" * leading_zeroes) + (encoded or "1")
+
+
+def _normalize_trx_address(address: str) -> str:
+    """
+    Return canonical user-facing TRX address form when conversion is safe.
+
+    TRON providers may return address bytes as hex with the 0x41 network prefix.
+    Analytics uses base58check T... addresses as the canonical TRX form.
+    Unknown or malformed strings are left unchanged so normalization remains
+    defensive and does not turn provider quirks into unexpected exceptions.
+    """
+    if _TRX.match(address):
+        return address
+    if not _TRX_HEX.match(address):
+        return address
+
+    try:
+        return _base58check_encode(bytes.fromhex(address))
+    except ValueError:
+        return address
+
 
 def normalize_address_for_network(network: str, address: str) -> str:
     """
     Return the canonical form of an address for the given network.
 
     ETH/BNB: strip whitespace and lowercase (EVM addresses are case-insensitive).
+    TRX: strip whitespace and convert provider hex 41... addresses to base58 T....
     All other networks: strip whitespace only — casing is meaningful.
     """
     stripped = address.strip()
-    if network.upper() in _EVM_NETWORKS:
+    network_code = network.upper()
+    if network_code in _EVM_NETWORKS:
         return stripped.lower()
+    if network_code == "TRX":
+        return _normalize_trx_address(stripped)
     return stripped
 
 

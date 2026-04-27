@@ -3,6 +3,7 @@ import logging
 import httpx
 
 from app.config import settings
+from app.validators.address import normalize_address_for_network
 from .base import BlockchainFetcher, BlockchainRateLimitedError, BlockchainUnavailableError, Transaction
 
 logger = logging.getLogger(__name__)
@@ -97,6 +98,9 @@ class TronFetcher(BlockchainFetcher):
 
             if not from_addr or not to_addr or amount_sun == 0:
                 continue
+
+            from_addr = normalize_address_for_network("TRX", from_addr)
+            to_addr = normalize_address_for_network("TRX", to_addr)
 
             dedup_key = (tx_hash, from_addr, to_addr)
             if dedup_key in seen:
