@@ -14,7 +14,8 @@
 - [x] `web-app/app/page.tsx` — public landing page with sign-in/dashboard entry
 - [x] `web-app/.env.example` — documents `ANALYTICS_SERVICE_URL`, `DATABASE_URL`, `AUTH_SECRET`, `NEXTAUTH_URL`, and local/staging admin seed variables
 - [x] Global CSS with dark theme, no external UI library
-- [x] NextAuth.js credentials baseline — email/password login only, JWT sessions, custom `/login` page, no registration, no password reset, no GitHub OAuth
+- [x] NextAuth.js credentials baseline — email/password login only, JWT sessions, custom `/login` page, no password reset, no GitHub OAuth
+- [x] User registration — `POST /api/register` accepts `{email, password}` JSON; validates email format and minimum 8-char password; normalizes email to lowercase; returns 400 on invalid input, 409 on duplicate email, 201 `{id, email}` on success; hashes password with bcryptjs (12 rounds) via `lib/password.ts`; inserts new user into `users` and assigns `user` role via `lib/db.ts#createUser()`; `/register` page with `SignUpForm` component that validates client-side, calls `POST /api/register`, then auto-signs in via `signIn("credentials")`; login page links to `/register`; `/api/register` is not in the middleware matcher (intentionally public)
 - [x] DB-backed auth lookup — credentials sign-in reads existing Postgres `users`, `user_roles`, and `roles`; verifies `users.password_hash` with bcryptjs; denies login for missing role, invalid password, missing hash, or `users.is_blocked = TRUE`; if multiple roles exist, effective role is strongest by hierarchy `admin > moderator > user`
 - [x] JWT/session claims — session token stores `id`, `email`, `role`, and `isBlocked`; allowed roles are exactly `user`, `moderator`, `admin`
 - [x] Middleware RBAC foundation — `web-app/middleware.ts` protects `/dashboard`, `/analyze`, `/admin/:path*`, `/moderator/:path*`, `/api/analyze`, `/api/admin/:path*`, `/api/moderator/:path*`, `/api/history/:path*`, and `/api/flagged-addresses/:path*`; unauthenticated page requests redirect to `/login`; unauthenticated API requests return JSON 401; insufficient-role or blocked-claim page requests redirect to `/unauthorized`; insufficient-role or blocked-claim API requests return JSON 403
@@ -33,7 +34,6 @@
 - [ ] Analysis history: own history for user/moderator, all history for admin
 - [ ] Re-open saved analysis result without recomputation
 - [ ] GitHub OAuth
-- [ ] Registration
 - [ ] Password reset
 - [ ] Database-backed sessions / immediate global session revocation
 - [ ] Full audit logging: failed login, analysis run, flagged-address changes, admin actions
@@ -71,7 +71,8 @@ The web application implements the browser-facing algorithm:
 ### Auth
 
 - Implemented login: email + password through NextAuth.js Credentials provider.
-- Not implemented: registration, password reset, GitHub OAuth.
+- Implemented registration: `POST /api/register` → `lib/db.ts#createUser()` → `users` row + `user` role; auto-signs in after success.
+- Not implemented: password reset, GitHub OAuth.
 - Email must be unique.
 - Blocked users (`is_blocked = TRUE`) are denied at sign-in.
 - Middleware denies requests when the JWT `isBlocked` claim is true.

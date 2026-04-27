@@ -81,6 +81,44 @@ export async function findUserByEmail(
   return row ? rowToAuthUser(row) : null;
 }
 
+export async function createUser(
+  email: string,
+  passwordHash: string
+): Promise<{ id: string; email: string }> {
+  const { randomUUID } = await import("crypto");
+  const id = randomUUID();
+
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(
+      "INSERT INTO roles (name) VALUES ('user') ON CONFLICT (name) DO NOTHING"
+    );
+
+    await client.query(
+      `INSERT INTO users (id, email, password_hash, is_blocked)
+       VALUES ($1, $2, $3, FALSE)`,
+      [id, email, passwordHash]
+    );
+
+    await client.query(
+      `INSERT INTO user_roles (user_id, role_id)
+       SELECT $1, id FROM roles WHERE name = 'user'`,
+      [id]
+    );
+
+    await client.query("COMMIT");
+    return { id, email };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function findUserById(id: string): Promise<AuthUserRecord | null> {
   const result = await query<UserRoleRow>(
     `
