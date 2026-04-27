@@ -8,26 +8,35 @@
 ## Implemented ✅
 - [x] Next.js 15.5.15 project scaffold — App Router, TypeScript strict mode, Node.js 22 LTS, npm
 - [x] `web-app/lib/analytics.ts` — typed analytics-service client; defines `AnalyzeRequest`, `AnalyzeResponse`, `NodeOut`, `EdgeOut`, `RiskFactor`, `AnalyticsErrorResponse`, known `AnalyticsErrorCode` values; `submitAnalysis()` browser helper posts to web-app `/api/analyze` proxy (never directly to analytics-service)
-- [x] `web-app/app/api/analyze/route.ts` — server-side proxy `POST /api/analyze`; reads `ANALYTICS_SERVICE_URL` env var; forwards request to analytics-service; passes status code through; returns structured `INTERNAL_ERROR` on unreachable service; never exposes raw stack traces
+- [x] `web-app/app/api/analyze/route.ts` — authenticated server-side proxy `POST /api/analyze`; reads `ANALYTICS_SERVICE_URL` env var; requires a signed-in user; performs a fresh DB check of current `users.is_blocked` and effective role from `users`/`user_roles`/`roles` before proxying; forwards request to analytics-service only after authorization; passes analytics-service status code through; returns structured `INTERNAL_ERROR` on unreachable service; never exposes raw stack traces
 - [x] `web-app/app/analyze/page.tsx` — analysis form (address, network, depth, tx_limit, optional period_days); client-side validation before submit; loading state; result rendering (risk_score, risk_level, scoring_method, model_version, flag_type, factors, nodes table, edges table with first_seen/last_seen, ML features table, analyzed_at)
 - [x] Structured error handling by `error_code` — `INVALID_ADDRESS` → address field error; `UNSUPPORTED_NETWORK` → network field error; `BLOCKCHAIN_RATE_LIMITED` / `BLOCKCHAIN_UNAVAILABLE` → warning banner; `INVALID_REQUEST` / `INTERNAL_ERROR` / unknown → error banner; `detail` string is never parsed for UI logic
-- [x] `web-app/app/page.tsx` — minimal landing page with link to `/analyze`
-- [x] `web-app/.env.example` — documents `ANALYTICS_SERVICE_URL` for local (`http://127.0.0.1:8000`) and k8s in-cluster (`http://analytics-service:8000`) use
+- [x] `web-app/app/page.tsx` — public landing page with sign-in/dashboard entry
+- [x] `web-app/.env.example` — documents `ANALYTICS_SERVICE_URL`, `DATABASE_URL`, `AUTH_SECRET`, `NEXTAUTH_URL`, and local/staging admin seed variables
 - [x] Global CSS with dark theme, no external UI library
-- [x] Local web-app smoke verified (2026-04-27): dev server on `0.0.0.0:3000` via `npm run dev -- --hostname 0.0.0.0`; `ANALYTICS_SERVICE_URL` loaded from `.env.local`, confirmed server-side only (not present in client JS bundles); `/api/analyze` proxy success path returns HTTP 200 with `risk_score`, `risk_level`, `request_id`, `result_id`, `scoring_method=ml_model`, `model_version=universal_xgboost_v1`, 27 features, 2 factors; `UNSUPPORTED_NETWORK` returns HTTP 400 with `request_id=null`; `INVALID_ADDRESS` returns HTTP 400 with `request_id=null`; service-unavailable returns HTTP 500 `INTERNAL_ERROR` with no stack trace; browser renders result panel, inline address error, and banner error correctly; browser calls `/api/analyze` proxy only, never `127.0.0.1:8000` directly
+- [x] NextAuth.js credentials baseline — email/password login only, JWT sessions, custom `/login` page, no registration, no password reset, no GitHub OAuth
+- [x] DB-backed auth lookup — credentials sign-in reads existing Postgres `users`, `user_roles`, and `roles`; verifies `users.password_hash` with bcryptjs; denies login for missing role, invalid password, missing hash, or `users.is_blocked = TRUE`; if multiple roles exist, effective role is strongest by hierarchy `admin > moderator > user`
+- [x] JWT/session claims — session token stores `id`, `email`, `role`, and `isBlocked`; allowed roles are exactly `user`, `moderator`, `admin`
+- [x] Middleware RBAC foundation — `web-app/middleware.ts` protects `/dashboard`, `/analyze`, `/admin/:path*`, `/moderator/:path*`, `/api/analyze`, `/api/admin/:path*`, `/api/moderator/:path*`, `/api/history/:path*`, and `/api/flagged-addresses/:path*`; unauthenticated page requests redirect to `/login`; unauthenticated API requests return JSON 401; insufficient-role or blocked-claim page requests redirect to `/unauthorized`; insufficient-role or blocked-claim API requests return JSON 403
+- [x] Blocked-user baseline — blocked users are denied at sign-in and denied by middleware when the JWT `isBlocked` claim is true; protected API/server guards re-check the database for sensitive actions such as `/api/analyze`
+- [x] JWT limitation documented — middleware uses JWT claims, so role/block claims can be stale until token refresh/re-login; full database-backed sessions and immediate global session revocation are not implemented
+- [x] Role-aware pages/menu — `/dashboard` shows role-appropriate actions; `/admin` is admin-only placeholder; `/moderator` is moderator/admin placeholder; `/unauthorized` handles denied page access; global navigation shows links according to the current session role
+- [x] Admin seed script — `npm run seed:admin` runs `web-app/scripts/seed-admin.ts`, reads `DATABASE_URL`, `ADMIN_EMAIL`, and `ADMIN_PASSWORD`, hashes the password with bcryptjs, ensures `admin` role exists, creates/updates the admin user, unblocks that user, and ensures the admin role assignment without printing the password
+- [x] Local auth/RBAC smoke verified (2026-04-27): Postgres and analytics-service were reached via local port-forwards; dev server ran on `0.0.0.0:3200` with ignored `.env.local`; `npm run seed:admin` created/updated a test admin without printing the password; unauthenticated `/analyze` and `/admin` redirected to `/login`; unauthenticated `POST /api/analyze` returned JSON 401; seeded admin login returned HTTP 200; `/dashboard`, `/admin`, and `/moderator` were accessible as admin; authenticated `POST /api/analyze` proxied successfully to analytics-service and returned HTTP 200 with `request_id`, `result_id`, `risk_level=MEDIUM`, `scoring_method=ml_model`, and `model_version=universal_xgboost_v1`; setting the test user `is_blocked=true` caused login to fail with HTTP 401; logging in while unblocked, then setting `is_blocked=true`, caused `POST /api/analyze` with the existing JWT cookie to return JSON 403 `reason=blocked` from the fresh DB check; the test user was restored to `is_blocked=false`
 - [x] Transaction graph visualization (`web-app/components/TransactionGraph.tsx`) — interactive directed graph using `@xyflow/react` with dagre left-to-right layout; root address shown in indigo, flagged addresses in red, normal addresses in dark surface; directed edges with arrow markers and `N tx` labels; tooltip (title attr) on each edge shows `tx_count`, `total_amount`, `first_seen`, `last_seen`; zoom/pan/fit-view via built-in Controls; long addresses truncated to 8+6 chars; fallback visualization node created if edge references an address missing from `nodes`; empty state renders safe message when `edges.length === 0`; loaded via `next/dynamic` with `ssr: false`
 - [x] Sankey transaction-flow diagram (`web-app/components/SankeyDiagram.tsx`) — root-centered depth-1 custom SVG flow diagram (no d3-sankey); incoming counterparties on the left, analyzed root address as a large centered rectangle, outgoing counterparties on the right; only root-adjacent edges are rendered (incoming: `edge.to_address == rootAddress`; outgoing: `edge.from_address == rootAddress`); deeper non-root edges ignored regardless of analysis depth; addresses compared after `trim().toLowerCase()`, original address preserved for display labels; parallel edges per counterparty collapsed by summing `tx_count` and `total_amount` and taking min/max timestamps; flow stroke width scaled by `sqrt(tx_count)` clamped to [2, 24] — `total_amount` does not affect width; `total_amount` shown only in SVG `<title>` tooltip alongside `tx_count`, `first_seen`, `last_seen`; same counterparty that both sends and receives appears in both left and right columns as separate entries; counterparties sorted descending by `tx_count`, capped at 20 per side; root/flagged/normal visual distinction maintained; responsive width via `ResizeObserver`; distinct empty state `"No root-adjacent transaction edges found — Sankey flow is not available."` when no root-adjacent edges; layout-error fallback `"Transaction flow layout could not be generated."`; legend for root/flagged/normal/incoming flow/outgoing flow; loaded via `next/dynamic` with `ssr: false`
 
 ## NOT Implemented ❌
-- [ ] Frontend UI: authorization pages, main menu, history page, flagged-address pages
+- [ ] Frontend UI: history page and flagged-address pages
 - [ ] Report export to file
 - [ ] Web-app REST API for history, flagged-address management, user management, audit log, system settings
 - [ ] Analysis history: own history for user/moderator, all history for admin
 - [ ] Re-open saved analysis result without recomputation
-- [ ] NextAuth.js auth: email+password and GitHub OAuth
-- [ ] RBAC middleware: user / moderator / admin
-- [ ] Blocked-user enforcement at middleware level
-- [ ] Audit logging: failed login, analysis run, flagged-address changes, admin actions
+- [ ] GitHub OAuth
+- [ ] Registration
+- [ ] Password reset
+- [ ] Database-backed sessions / immediate global session revocation
+- [ ] Full audit logging: failed login, analysis run, flagged-address changes, admin actions
 - [ ] Moderator + Admin: view flagged-address list
 - [ ] Moderator + Admin: add flagged address manually with risk_category + comment
 - [ ] Moderator: deactivate only own flagged-address records
@@ -61,28 +70,28 @@ The web application implements the browser-facing algorithm:
 
 ### Auth
 
-- Registration: email + password.
-- Login: email + password OR GitHub OAuth through NextAuth.js.
+- Implemented login: email + password through NextAuth.js Credentials provider.
+- Not implemented: registration, password reset, GitHub OAuth.
 - Email must be unique.
-- Same OAuth account must map to the same user record.
-- Blocked users (`is_blocked = TRUE`) are denied at middleware level, not only hidden in UI.
-- Failed login attempts are written to `audit_logs`.
-- Successful login determines the user role: `user`, `moderator`, or `admin`.
+- Blocked users (`is_blocked = TRUE`) are denied at sign-in.
+- Middleware denies requests when the JWT `isBlocked` claim is true.
+- JWT middleware claims can be stale until token refresh/re-login.
+- Protected API/server guards re-check DB state for sensitive actions such as `/api/analyze`.
+- Full database-backed sessions / immediate global session revocation is NOT Implemented.
+- Failed login attempts are not yet written to `audit_logs`.
+- Successful login determines the effective user role: `user`, `moderator`, or `admin`; if multiple roles exist, the strongest role is used (`admin > moderator > user`).
 - After successful login, user is redirected to the main menu/dashboard.
 
 ### Main Menu / Dashboard
 
-The main menu displays actions available to the current role:
+Current implemented dashboard/menu:
 
-- Run address analysis.
-- View analysis history.
-- Manage flagged-address database, only for moderator/admin.
-- User management, only for admin.
-- Audit log, only for admin.
-- System settings, only for admin.
-- Logout.
+- Run address analysis for all authenticated roles.
+- Moderator tools placeholder for moderator/admin.
+- Admin tools placeholder for admin.
+- Logout via global navigation.
 
-The menu must not show actions unavailable to the current role, but backend/API access control must still enforce permissions.
+Full history, flagged-address management, user management, audit log, and system settings modules are NOT Implemented. The menu must not show actions unavailable to the current role, but backend/API access control must still enforce permissions.
 
 ### Analysis
 

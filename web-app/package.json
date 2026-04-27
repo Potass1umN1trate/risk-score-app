@@ -6,13 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "next lint"
+    "lint": "next lint",
+    "seed:admin": "node --experimental-strip-types scripts/seed-admin.ts"
   },
   "dependencies": {
     "@dagrejs/dagre": "^3.0.0",
     "@xyflow/react": "^12.10.2",
+    "bcryptjs": "^3.0.3",
     "d3-sankey": "^0.12.3",
     "next": "15.5.15",
+    "next-auth": "^4.24.14",
+    "pg": "^8.20.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0"
   },
@@ -20,6 +24,7 @@
     "@eslint/eslintrc": "^3.3.5",
     "@types/d3-sankey": "^0.12.5",
     "@types/node": "^22.0.0",
+    "@types/pg": "^8.20.0",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
     "eslint": "^9.0.0",
