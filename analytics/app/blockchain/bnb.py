@@ -21,19 +21,27 @@ class BNBFetcher(BlockchainFetcher):
 
     async def fetch(self, address: str, limit: int = 50) -> list[Transaction]:
         if not settings.moralis_api_key:
-            logger.warning("moralis_api_key is not set — skipping BNB fetch for %s", address)
-            return []
+            raise BlockchainUnavailableError(
+                f"BNB provider (Moralis) unavailable for {address}: moralis_api_key is not configured"
+            )
+
+        request_limit = min(limit, 100)
 
         try:
             async with httpx.AsyncClient(timeout=_TIMEOUT) as client:
                 resp = await client.get(
-                    f"{_MORALIS_URL}/{address}",
-                    params={"chain": "bsc", "limit": limit},
+                    f"{_MORALIS_URL}/wallets/{address}/history",
+                    params={"chain": "bsc", "limit": request_limit},
                     headers={"X-API-Key": settings.moralis_api_key},
                 )
                 if resp.status_code == 429:
                     raise BlockchainRateLimitedError(f"Moralis BNB rate-limited (HTTP 429) for {address}")
-                resp.raise_for_status()
+                if not resp.is_success:
+                    logger.warning(
+                        "Moralis BNB HTTP %s for %s — response body: %s",
+                        resp.status_code, address, resp.text[:500],
+                    )
+                    resp.raise_for_status()
                 data = resp.json()
         except BlockchainRateLimitedError:
             raise

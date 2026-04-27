@@ -100,7 +100,11 @@
       "Bash(kubectl -n risk-score-app logs -l app=analytics-service --tail=50)",
       "Bash(python3 -m pytest tests/test_graph_builder_resilience.py -q)",
       "Bash(python3 -m pytest tests/test_spec_alignment.py -v)",
-      "Bash(kubectl exec *)"
+      "Bash(kubectl exec *)",
+      "Bash(python3 -m pytest tests/test_bnb_fetcher.py -v)",
+      "Bash(curl -i -sS -X POST http://127.0.0.1:8000/api/analyze -H 'content-type: application/json' -d '{\"address\":\"0x4923d960f84d89e72c78daf82015b519aaafe994\",\"network\":\"BNB\",\"depth\":1,\"tx_limit\":10,\"period_days\":30}')",
+      "Bash(kubectl logs *)",
+      "Bash(python3 -m pytest tests/test_bnb_fetcher.py tests/ -q)"
     ]
   }
 }

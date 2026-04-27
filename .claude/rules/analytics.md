@@ -16,6 +16,7 @@
 - Fallback: heuristic-only scoring if model file missing (no crash)
 - Address format validation: `app/validators/address.py` — per-network regex
 - Fetchers: BTC (mempool.space), ETH (Etherscan v2), TRX, SOL (Helius), BNB (Moralis), XRP, LTC, DOGE, ADA (Blockfrost), TON (TonCenter)
+- **BNB Moralis fetcher fix**: `analytics/app/blockchain/bnb.py` corrected endpoint from `/{address}` to `/wallets/{address}/history` (the old path returned HTTP 400); Moralis request `limit` capped at `min(limit, 100)`; missing `moralis_api_key` now raises `BlockchainUnavailableError` instead of silently returning `[]` (returning `[]` is forbidden — indistinguishable from a legitimate empty address); HTTP 429 raises `BlockchainRateLimitedError`; all other non-2xx responses log the response body server-side (truncated to 500 chars) and raise `BlockchainUnavailableError`; BNB has no fallback provider — root fetch failure surfaces as `BLOCKCHAIN_UNAVAILABLE` to the API client. 18 unit tests added in `analytics/tests/test_bnb_fetcher.py` (no DB, Docker, network, or model artifacts).
 - DB connection pool: asyncpg (main.py lifespan)
 - Request lifecycle: `processing → completed / failed`
 - Persistence foundation for history: analysis requests/results are saved; public history API belongs to web-app
@@ -46,7 +47,6 @@
 - [ ] Clean up pre-existing Pydantic v2 deprecation warning in analytics tests
 - [ ] Add explicit `NO_TRANSACTIONS_FOUND` / `DATA_INSUFFICIENT` handling for empty transaction graphs instead of scoring all-zero feature vector as normal ML result
 - [ ] TRX: fix root separation / wrong edge-root matching in graph output
-- [ ] BNB: handle Moralis 400 Bad Request provider failures correctly
 - [ ] DOGE: handle BlockCypher 429 rate limiting / add fallback or clearer behavior
 ---
 
