@@ -44,6 +44,10 @@
 ## NOT Implemented ❌
 - [ ] Clean up pre-existing Pydantic v2 deprecation warning in analytics tests
 - [ ] Add explicit `NO_TRANSACTIONS_FOUND` / `DATA_INSUFFICIENT` handling for empty transaction graphs instead of scoring all-zero feature vector as normal ML result
+- [ ] TRX: fix root separation / wrong edge-root matching in graph output
+- [ ] BNB: handle Moralis 400 Bad Request provider failures correctly
+- [ ] DOGE: handle BlockCypher 429 rate limiting / add fallback or clearer behavior
+- [ ] TON: fix missing TON network seed in DB / persistence mapping
 ---
 
 ## Analysis Algorithm
