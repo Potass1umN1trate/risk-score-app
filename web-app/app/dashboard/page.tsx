@@ -34,9 +34,16 @@ export default async function DashboardPage() {
         </Link>
 
         {hasRequiredRole(role, "moderator") && (
+          <Link className="menu-item" href="/flagged-addresses">
+            <span className="menu-title">Flagged addresses</span>
+            <span className="menu-desc">View, add, import, and export flagged blockchain addresses.</span>
+          </Link>
+        )}
+
+        {hasRequiredRole(role, "moderator") && (
           <Link className="menu-item" href="/moderator">
             <span className="menu-title">Moderator tools</span>
-            <span className="menu-desc">Placeholder for future flagged-address workflows.</span>
+            <span className="menu-desc">Placeholder for future moderator workflows.</span>
           </Link>
         )}
 

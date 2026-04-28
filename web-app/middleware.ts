@@ -65,6 +65,9 @@ export const config = {
     "/api/admin/:path*",
     "/api/moderator/:path*",
     "/api/history/:path*",
+    "/api/flagged-addresses",
     "/api/flagged-addresses/:path*",
+    "/flagged-addresses",
+    "/flagged-addresses/:path*",
   ],
 };

@@ -441,6 +441,351 @@ export async function findOrCreateOAuthUser(
   }
 }
 
+// ─── Flagged address types ────────────────────────────────────────────────────
+
+export interface FlaggedAddressItem {
+  id: string;
+  network_id: number;
+  network_code: string;
+  network_name: string;
+  address: string;
+  risk_category_id: number;
+  risk_category_code: string;
+  risk_category_name: string;
+  comment: string | null;
+  created_by_user_id: string | null;
+  created_by_email: string | null;
+  created_at: string;
+  is_active: boolean;
+}
+
+export interface FlaggedAddressFilters {
+  network?: string;
+  category?: string;
+  search?: string;
+  active?: boolean;
+}
+
+export interface ImportRecord {
+  network_code: string;
+  address: string;
+  risk_category_code: string;
+  comment?: string | null;
+}
+
+interface FlaggedAddressRow extends QueryResultRow {
+  id: string;
+  network_id: number;
+  network_code: string;
+  network_name: string;
+  address: string;
+  risk_category_id: number;
+  risk_category_code: string;
+  risk_category_name: string;
+  comment: string | null;
+  created_by_user_id: string | null;
+  created_by_email: string | null;
+  created_at: Date;
+  is_active: boolean;
+}
+
+function rowToFlaggedAddress(row: FlaggedAddressRow): FlaggedAddressItem {
+  return {
+    id: row.id,
+    network_id: row.network_id,
+    network_code: row.network_code,
+    network_name: row.network_name,
+    address: row.address,
+    risk_category_id: row.risk_category_id,
+    risk_category_code: row.risk_category_code,
+    risk_category_name: row.risk_category_name,
+    comment: row.comment,
+    created_by_user_id: row.created_by_user_id,
+    created_by_email: row.created_by_email,
+    created_at: row.created_at instanceof Date
+      ? row.created_at.toISOString()
+      : String(row.created_at),
+    is_active: row.is_active,
+  };
+}
+
+const FLAGGED_SELECT = `
+  SELECT
+    fa.id,
+    fa.network_id,
+    n.code    AS network_code,
+    n.name    AS network_name,
+    fa.address,
+    fa.risk_category_id,
+    rc.code   AS risk_category_code,
+    rc.name   AS risk_category_name,
+    fa.comment,
+    fa.created_by_user_id,
+    u.email   AS created_by_email,
+    fa.created_at,
+    fa.is_active
+  FROM flagged_addresses fa
+  JOIN networks n ON n.id = fa.network_id
+  JOIN risk_categories rc ON rc.id = fa.risk_category_id
+  LEFT JOIN users u ON u.id = fa.created_by_user_id
+`;
+
+export async function getFlaggedAddresses(
+  filters: FlaggedAddressFilters,
+  limit: number,
+  offset: number
+): Promise<{ items: FlaggedAddressItem[]; total: number }> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (filters.network) {
+    params.push(filters.network.toUpperCase());
+    conditions.push(`n.code = $${params.length}`);
+  }
+  if (filters.category) {
+    params.push(filters.category.toLowerCase());
+    conditions.push(`rc.code = $${params.length}`);
+  }
+  if (filters.search) {
+    params.push(`%${filters.search}%`);
+    conditions.push(`fa.address ILIKE $${params.length}`);
+  }
+  if (filters.active !== undefined) {
+    params.push(filters.active);
+    conditions.push(`fa.is_active = $${params.length}`);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const listParams = [...params, limit, offset];
+  const countParams = [...params];
+
+  const [listResult, countResult] = await Promise.all([
+    query<FlaggedAddressRow>(
+      `${FLAGGED_SELECT} ${where} ORDER BY fa.created_at DESC LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+      listParams
+    ),
+    query<{ total: string }>(
+      `SELECT COUNT(*) AS total
+       FROM flagged_addresses fa
+       JOIN networks n ON n.id = fa.network_id
+       JOIN risk_categories rc ON rc.id = fa.risk_category_id
+       ${where}`,
+      countParams
+    ),
+  ]);
+
+  return {
+    items: listResult.rows.map(rowToFlaggedAddress),
+    total: parseInt(countResult.rows[0]?.total ?? "0", 10),
+  };
+}
+
+export async function getFlaggedAddressById(
+  id: string
+): Promise<FlaggedAddressItem | null> {
+  const result = await query<FlaggedAddressRow>(
+    `${FLAGGED_SELECT} WHERE fa.id = $1`,
+    [id]
+  );
+  const row = result.rows[0];
+  return row ? rowToFlaggedAddress(row) : null;
+}
+
+export async function createFlaggedAddress(
+  data: { network_code: string; address: string; risk_category_code: string; comment?: string | null },
+  userId: string
+): Promise<FlaggedAddressItem> {
+  const { randomUUID } = await import("crypto");
+  const id = randomUUID();
+
+  const networkResult = await query<{ id: number }>(
+    `SELECT id FROM networks WHERE code = $1`,
+    [data.network_code.toUpperCase()]
+  );
+  if (!networkResult.rows[0]) {
+    throw new Error(`Unknown network code: ${data.network_code}`);
+  }
+  const network_id = networkResult.rows[0].id;
+
+  const categoryResult = await query<{ id: number }>(
+    `SELECT id FROM risk_categories WHERE code = $1`,
+    [data.risk_category_code.toLowerCase()]
+  );
+  if (!categoryResult.rows[0]) {
+    throw new Error(`Unknown risk category code: ${data.risk_category_code}`);
+  }
+  const risk_category_id = categoryResult.rows[0].id;
+
+  await query(
+    `INSERT INTO flagged_addresses
+       (id, network_id, address, risk_category_id, comment, created_by_user_id, is_active)
+     VALUES ($1, $2, $3, $4, $5, $6, TRUE)`,
+    [id, network_id, data.address.trim(), risk_category_id, data.comment ?? null, userId]
+  );
+
+  const created = await getFlaggedAddressById(id);
+  if (!created) throw new Error("Failed to load created flagged address");
+  return created;
+}
+
+export async function updateFlaggedAddress(
+  id: string,
+  patch: { risk_category_code?: string; comment?: string | null }
+): Promise<FlaggedAddressItem | null> {
+  if (patch.risk_category_code !== undefined) {
+    const categoryResult = await query<{ id: number }>(
+      `SELECT id FROM risk_categories WHERE code = $1`,
+      [patch.risk_category_code.toLowerCase()]
+    );
+    if (!categoryResult.rows[0]) {
+      throw new Error(`Unknown risk category code: ${patch.risk_category_code}`);
+    }
+    const risk_category_id = categoryResult.rows[0].id;
+
+    if (patch.comment !== undefined) {
+      await query(
+        `UPDATE flagged_addresses SET risk_category_id = $1, comment = $2 WHERE id = $3 AND is_active = TRUE`,
+        [risk_category_id, patch.comment, id]
+      );
+    } else {
+      await query(
+        `UPDATE flagged_addresses SET risk_category_id = $1 WHERE id = $2 AND is_active = TRUE`,
+        [risk_category_id, id]
+      );
+    }
+  } else if (patch.comment !== undefined) {
+    await query(
+      `UPDATE flagged_addresses SET comment = $1 WHERE id = $2 AND is_active = TRUE`,
+      [patch.comment, id]
+    );
+  }
+
+  return getFlaggedAddressById(id);
+}
+
+export async function deactivateFlaggedAddress(id: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE flagged_addresses SET is_active = FALSE WHERE id = $1 AND is_active = TRUE`,
+    [id]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function exportFlaggedAddresses(): Promise<FlaggedAddressItem[]> {
+  const result = await query<FlaggedAddressRow>(
+    `${FLAGGED_SELECT} WHERE fa.is_active = TRUE ORDER BY fa.created_at DESC`,
+    []
+  );
+  return result.rows.map(rowToFlaggedAddress);
+}
+
+export interface ImportResult {
+  inserted: number;
+  skipped: number;
+  errors: string[];
+}
+
+export async function importFlaggedAddresses(
+  records: ImportRecord[],
+  userId: string
+): Promise<ImportResult> {
+  const { randomUUID } = await import("crypto");
+
+  // Resolve all distinct network codes at once.
+  const networkCodes = [...new Set(records.map((r) => r.network_code.toUpperCase()))];
+  const networkRows = await query<{ id: number; code: string }>(
+    `SELECT id, code FROM networks WHERE code = ANY($1)`,
+    [networkCodes]
+  );
+  const networkMap = new Map(networkRows.rows.map((r) => [r.code, r.id]));
+
+  // Resolve all distinct category codes at once.
+  const categoryCodes = [...new Set(records.map((r) => r.risk_category_code.toLowerCase()))];
+  const categoryRows = await query<{ id: number; code: string }>(
+    `SELECT id, code FROM risk_categories WHERE code = ANY($1)`,
+    [categoryCodes]
+  );
+  const categoryMap = new Map(categoryRows.rows.map((r) => [r.code, r.id]));
+
+  let inserted = 0;
+  let skipped = 0;
+  const errors: string[] = [];
+
+  for (const rec of records) {
+    const networkCode = rec.network_code.toUpperCase();
+    const categoryCode = rec.risk_category_code.toLowerCase();
+    const address = rec.address.trim();
+
+    const network_id = networkMap.get(networkCode);
+    if (!network_id) {
+      errors.push(`Unknown network code: ${networkCode} (address: ${address})`);
+      continue;
+    }
+
+    const risk_category_id = categoryMap.get(categoryCode);
+    if (!risk_category_id) {
+      errors.push(`Unknown risk category code: ${categoryCode} (address: ${address})`);
+      continue;
+    }
+
+    if (!address) {
+      errors.push(`Empty address for network ${networkCode}`);
+      continue;
+    }
+
+    try {
+      const result = await query(
+        `INSERT INTO flagged_addresses
+           (id, network_id, address, risk_category_id, comment, created_by_user_id, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, TRUE)
+         ON CONFLICT (network_id, address) DO NOTHING`,
+        [randomUUID(), network_id, address, risk_category_id, rec.comment ?? null, userId]
+      );
+      if ((result.rowCount ?? 0) > 0) {
+        inserted++;
+      } else {
+        skipped++;
+      }
+    } catch {
+      errors.push(`Failed to insert address ${address} on network ${networkCode}`);
+    }
+  }
+
+  return { inserted, skipped, errors };
+}
+
+// ─── Risk categories and networks (for UI selects) ────────────────────────────
+
+export interface RiskCategory {
+  id: number;
+  code: string;
+  name: string;
+  severity: number;
+}
+
+export async function getRiskCategories(): Promise<RiskCategory[]> {
+  const result = await query<RiskCategory & QueryResultRow>(
+    `SELECT id, code, name, severity FROM risk_categories ORDER BY severity DESC, name`,
+    []
+  );
+  return result.rows;
+}
+
+export interface NetworkItem {
+  id: number;
+  code: string;
+  name: string;
+}
+
+export async function getNetworks(): Promise<NetworkItem[]> {
+  const result = await query<NetworkItem & QueryResultRow>(
+    `SELECT id, code, name FROM networks WHERE is_active = TRUE ORDER BY code`,
+    []
+  );
+  return result.rows;
+}
+
 export async function findUserById(id: string): Promise<AuthUserRecord | null> {
   const result = await query<UserRoleRow>(
     `
