@@ -369,6 +369,78 @@ export async function patchAnalysisRequestUserId(
   );
 }
 
+export async function findOrCreateOAuthUser(
+  provider: string,
+  providerAccountId: string,
+  email: string
+): Promise<AuthUserRecord> {
+  const { randomUUID } = await import("crypto");
+  const pool = getPool();
+  const client = await pool.connect();
+
+  try {
+    await client.query("BEGIN");
+
+    // Check if this OAuth account already exists.
+    const existingOAuth = await client.query<{ user_id: string }>(
+      `SELECT user_id FROM oauth_accounts WHERE provider = $1 AND provider_account_id = $2`,
+      [provider, providerAccountId]
+    );
+
+    if (existingOAuth.rows.length > 0) {
+      await client.query("COMMIT");
+      const user = await findUserById(existingOAuth.rows[0].user_id);
+      if (!user) throw new Error("OAuth account linked to missing user");
+      return user;
+    }
+
+    // Check if a user with this email already exists (credentials account).
+    const existingUser = await client.query<{ id: string }>(
+      `SELECT id FROM users WHERE lower(email) = lower($1) LIMIT 1`,
+      [email]
+    );
+
+    let userId: string;
+
+    if (existingUser.rows.length > 0) {
+      // Link OAuth account to existing user.
+      userId = existingUser.rows[0].id;
+    } else {
+      // Create a new user without a password hash.
+      userId = randomUUID();
+      await client.query(
+        `INSERT INTO roles (name) VALUES ('user') ON CONFLICT (name) DO NOTHING`
+      );
+      await client.query(
+        `INSERT INTO users (id, email, password_hash, is_blocked) VALUES ($1, $2, NULL, FALSE)`,
+        [userId, email.trim().toLowerCase()]
+      );
+      await client.query(
+        `INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE name = 'user'`,
+        [userId]
+      );
+    }
+
+    // Always insert the OAuth account record.
+    const oauthId = randomUUID();
+    await client.query(
+      `INSERT INTO oauth_accounts (id, user_id, provider, provider_account_id) VALUES ($1, $2, $3, $4)`,
+      [oauthId, userId, provider, providerAccountId]
+    );
+
+    await client.query("COMMIT");
+
+    const user = await findUserById(userId);
+    if (!user) throw new Error("Failed to load user after OAuth provisioning");
+    return user;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function findUserById(id: string): Promise<AuthUserRecord | null> {
   const result = await query<UserRoleRow>(
     `

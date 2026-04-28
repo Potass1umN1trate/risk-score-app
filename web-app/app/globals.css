@@ -422,6 +422,37 @@ tr:last-child td {
   border-radius: 2px;
 }
 
+/* OAuth divider and GitHub button */
+.oauth-divider {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.25rem 0;
+  color: var(--color-muted);
+  font-size: 0.85rem;
+}
+.oauth-divider::before,
+.oauth-divider::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--color-border);
+}
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text);
+  border: 1px solid var(--color-border);
+}
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-border);
+}
+.btn-github {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+}
+
 @media (max-width: 600px) {
   .nav-inner { align-items: flex-start; flex-direction: column; }
   .nav-links { align-items: flex-start; flex-wrap: wrap; margin-left: 0; }

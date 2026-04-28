@@ -14,7 +14,8 @@
 - [x] `web-app/app/page.tsx` — public landing page with sign-in/dashboard entry
 - [x] `web-app/.env.example` — documents `ANALYTICS_SERVICE_URL`, `DATABASE_URL`, `AUTH_SECRET`, `NEXTAUTH_URL`, and local/staging admin seed variables
 - [x] Global CSS with dark theme, no external UI library
-- [x] NextAuth.js credentials baseline — email/password login only, JWT sessions, custom `/login` page, no password reset, no GitHub OAuth
+- [x] NextAuth.js credentials baseline — email/password login only, JWT sessions, custom `/login` page, no password reset
+- [x] GitHub OAuth login — `GitHubProvider` added to `web-app/auth.ts`; `signIn` callback calls `findOrCreateOAuthUser(provider, providerAccountId, email)` in `lib/db.ts` to upsert `users` + `oauth_accounts` + assign `user` role on first sign-in; email collision with existing credentials account links OAuth to the existing user without creating a duplicate row; blocked users (`is_blocked=TRUE`) denied in `signIn` callback; `jwt` callback populates `id`, `role`, `isBlocked` for OAuth path on first sign-in; subsequent token refreshes use cached claims; env vars required: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`; callback URL: `<NEXTAUTH_URL>/api/auth/callback/github`; "Sign in with GitHub" button added to `LoginForm.tsx`; "Continue with GitHub" button added to `SignUpForm.tsx`; OAuth-only accounts have `password_hash=NULL` and cannot sign in via credentials provider
 - [x] User registration — `POST /api/register` accepts `{email, password}` JSON; validates email format and minimum 8-char password; normalizes email to lowercase; returns 400 on invalid input, 409 on duplicate email, 201 `{id, email}` on success; hashes password with bcryptjs (12 rounds) via `lib/password.ts`; inserts new user into `users` and assigns `user` role via `lib/db.ts#createUser()`; `/register` page with `SignUpForm` component that validates client-side, calls `POST /api/register`, then auto-signs in via `signIn("credentials")`; login page links to `/register`; `/api/register` is not in the middleware matcher (intentionally public)
 - [x] DB-backed auth lookup — credentials sign-in reads existing Postgres `users`, `user_roles`, and `roles`; verifies `users.password_hash` with bcryptjs; denies login for missing role, invalid password, missing hash, or `users.is_blocked = TRUE`; if multiple roles exist, effective role is strongest by hierarchy `admin > moderator > user`
 - [x] JWT/session claims — session token stores `id`, `email`, `role`, and `isBlocked`; allowed roles are exactly `user`, `moderator`, `admin`
@@ -38,7 +39,6 @@
 - [ ] Report export to file (CSV; JSON export from history detail page is implemented)
 - [ ] Web-app REST API for flagged-address management, user management, audit log, system settings
 - [ ] Re-open saved analysis result without recomputation — ✅ now implemented via `/history/[id]`
-- [ ] GitHub OAuth
 - [ ] Password reset
 - [ ] Database-backed sessions / immediate global session revocation
 - [ ] Full audit logging: failed login, analysis run, flagged-address changes, admin actions

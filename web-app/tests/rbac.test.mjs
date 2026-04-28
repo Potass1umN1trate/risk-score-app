@@ -116,3 +116,53 @@ test("no regression: /api/history prefix does not bleed into unrelated paths", (
   assert.equal(requiredRoleForPath("/api/history-export"), null); // not prefixed by /api/history/
   assert.equal(requiredRoleForPath("/api/historical"), null);
 });
+
+// ─── GitHub OAuth JWT claims produce same middleware decisions as credentials ──
+
+test("OAuth user JWT (role=user, isBlocked=false) passes /api/analyze", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: false };
+  assert.equal(middlewareDecision("/api/analyze", token), "next");
+});
+
+test("OAuth user JWT (role=user, isBlocked=false) passes /dashboard", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: false };
+  assert.equal(middlewareDecision("/dashboard", token), "next");
+});
+
+test("OAuth user JWT (role=user, isBlocked=false) passes /history", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: false };
+  assert.equal(middlewareDecision("/history", token), "next");
+});
+
+test("OAuth user JWT (role=user, isBlocked=false) passes /api/history", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: false };
+  assert.equal(middlewareDecision("/api/history", token), "next");
+});
+
+test("OAuth user JWT (role=user, isBlocked=false) is denied /admin (insufficient role)", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: false };
+  assert.equal(middlewareDecision("/admin", token), "redirect-unauthorized");
+});
+
+test("OAuth user JWT (isBlocked=true) is denied /api/analyze → 403", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: true };
+  assert.equal(middlewareDecision("/api/analyze", token), 403);
+});
+
+test("OAuth user JWT (isBlocked=true) is denied /dashboard → redirect-unauthorized", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: true };
+  assert.equal(middlewareDecision("/dashboard", token), "redirect-unauthorized");
+});
+
+test("OAuth JWT claims behave identically to credentials JWT claims for role=user", () => {
+  const credentialsToken = { id: "cred-uuid", role: "user", isBlocked: false };
+  const oauthToken      = { id: "oauth-uuid", role: "user", isBlocked: false };
+  const paths = ["/api/analyze", "/dashboard", "/history", "/api/history", "/api/history/some-id"];
+  for (const path of paths) {
+    assert.equal(
+      middlewareDecision(path, credentialsToken),
+      middlewareDecision(path, oauthToken),
+      `Mismatch for path: ${path}`
+    );
+  }
+});
