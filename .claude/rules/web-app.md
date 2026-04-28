@@ -35,23 +35,18 @@
 - [x] Dashboard and nav updated — "Analysis history" card added to `/dashboard`; "History" link added to global nav for authenticated users
 
 ## NOT Implemented ❌
-- [ ] Frontend UI: flagged-address pages
-- [ ] Report export to file (CSV; JSON export from history detail page is implemented)
+- [ ] Report export to PDF-file (CSV; JSON export from history detail page is implemented)
 - [ ] Web-app REST API for flagged-address management, user management, audit log, system settings
-- [ ] Re-open saved analysis result without recomputation — ✅ now implemented via `/history/[id]`
 - [ ] Password reset
 - [ ] Database-backed sessions / immediate global session revocation
 - [ ] Full audit logging: failed login, analysis run, flagged-address changes, admin actions
-- [ ] Moderator + Admin: view flagged-address list
-- [ ] Moderator + Admin: add flagged address manually with risk_category + comment
-- [ ] Moderator: deactivate only own flagged-address records
-- [ ] Admin: deactivate any flagged-address record
-- [ ] Admin: import/export flagged-address database
 - [ ] Admin: user management
 - [ ] Admin: audit log view
 - [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
 - [ ] Add padding to "Sign In" button
+- [ ] Fix: analysis do not take into consideratoin that addreses added to flagged-address 
+- [ ] Add activate button for flagged-address records instead of only deactivate; currently once a record is deactivated it cannot be reactivated, even by admin
 
 ---
 
