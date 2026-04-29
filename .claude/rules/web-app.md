@@ -47,6 +47,8 @@
 - [ ] Add padding to "Sign In" button
 - [ ] Fix: analysis do not take into consideratoin that addreses added to flagged-address 
 - [ ] Add activate button for flagged-address records instead of only deactivate; currently once a record is deactivated it cannot be reactivated, even by admin
+- [ ] Do not display "edit" and "deactivate" buttons for flagged-address records to moderators when `created_by_user_id !== current_user.id`, even if the moderator role can see the record in the list; currently the buttons are shown but will error if used on records they do not have permission to manage
+- [ ] Add spacing for sign in button of the login page
 
 ---
 
