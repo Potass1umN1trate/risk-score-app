@@ -16,7 +16,7 @@ export default function AdminPage() {
 
         <Link className="menu-item" href="/admin/networks">
           <span className="menu-title">Network management</span>
-          <span className="menu-desc">Enable or disable networks available for new analyses.</span>
+          <span className="menu-desc">Enable networks and configure per-network analysis limits.</span>
         </Link>
       </div>
     </div>

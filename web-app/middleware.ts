@@ -62,6 +62,7 @@ export const config = {
     "/admin/:path*",
     "/moderator/:path*",
     "/api/analyze",
+    "/api/networks",
     "/api/admin/:path*",
     "/api/moderator/:path*",
     "/api/history/:path*",

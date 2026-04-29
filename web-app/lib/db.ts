@@ -788,11 +788,29 @@ export interface NetworkItem {
   code: string;
   name: string;
   is_active?: boolean;
+  default_depth: number;
+  max_depth: number;
+  default_tx_limit: number;
+  max_tx_limit: number;
+  default_period_days: number | null;
+  max_period_days: number;
 }
 
 export async function getNetworks(): Promise<NetworkItem[]> {
   const result = await query<NetworkItem & QueryResultRow>(
-    `SELECT id, code, name FROM networks WHERE is_active = TRUE ORDER BY code`,
+    `SELECT
+       id,
+       code,
+       name,
+       default_depth,
+       max_depth,
+       default_tx_limit,
+       max_tx_limit,
+       default_period_days,
+       max_period_days
+     FROM networks
+     WHERE is_active = TRUE
+     ORDER BY code`,
     []
   );
   return result.rows;
@@ -803,25 +821,133 @@ export interface AdminNetworkItem {
   code: string;
   name: string;
   is_active: boolean;
+  default_depth: number;
+  max_depth: number;
+  default_tx_limit: number;
+  max_tx_limit: number;
+  default_period_days: number | null;
+  max_period_days: number;
 }
 
 export async function listAllNetworks(): Promise<AdminNetworkItem[]> {
   const result = await query<AdminNetworkItem & QueryResultRow>(
-    `SELECT id, code, name, is_active FROM networks ORDER BY code`,
+    `SELECT
+       id,
+       code,
+       name,
+       is_active,
+       default_depth,
+       max_depth,
+       default_tx_limit,
+       max_tx_limit,
+       default_period_days,
+       max_period_days
+     FROM networks
+     ORDER BY code`,
     []
   );
   return result.rows;
+}
+
+export type NetworkLimitsPatch = Partial<Pick<
+  AdminNetworkItem,
+  | "default_depth"
+  | "max_depth"
+  | "default_tx_limit"
+  | "max_tx_limit"
+  | "default_period_days"
+  | "max_period_days"
+>>;
+
+export type NetworkConfigPatch = NetworkLimitsPatch & {
+  is_active?: boolean;
+};
+
+const NETWORK_CONFIG_SELECT = `
+  SELECT
+    id,
+    code,
+    name,
+    is_active,
+    default_depth,
+    max_depth,
+    default_tx_limit,
+    max_tx_limit,
+    default_period_days,
+    max_period_days
+  FROM networks
+`;
+
+export async function getNetworkAnalysisConfig(
+  code: string
+): Promise<AdminNetworkItem | null> {
+  const result = await query<AdminNetworkItem & QueryResultRow>(
+    `${NETWORK_CONFIG_SELECT} WHERE code = $1 LIMIT 1`,
+    [code.trim().toUpperCase()]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function updateNetworkConfig(
+  code: string,
+  patch: NetworkConfigPatch
+): Promise<AdminNetworkItem | null> {
+  const fields: Array<keyof NetworkConfigPatch> = [
+    "is_active",
+    "default_depth",
+    "max_depth",
+    "default_tx_limit",
+    "max_tx_limit",
+    "default_period_days",
+    "max_period_days",
+  ];
+  const updates = fields.filter((field) => patch[field] !== undefined);
+
+  if (updates.length === 0) {
+    return getNetworkAnalysisConfig(code);
+  }
+
+  const values: unknown[] = updates.map((field) => patch[field]);
+  values.push(code.trim().toUpperCase());
+
+  const setClause = updates
+    .map((field, index) => `${field} = $${index + 1}`)
+    .join(", ");
+
+  const result = await query<AdminNetworkItem & QueryResultRow>(
+    `UPDATE networks
+     SET ${setClause}
+     WHERE code = $${values.length}
+     RETURNING
+       id,
+       code,
+       name,
+       is_active,
+       default_depth,
+       max_depth,
+       default_tx_limit,
+       max_tx_limit,
+       default_period_days,
+       max_period_days`,
+    values
+  );
+
+  return result.rows[0] ?? null;
+}
+
+export async function updateNetworkLimits(
+  code: string,
+  patch: NetworkLimitsPatch
+): Promise<AdminNetworkItem | null> {
+  return updateNetworkConfig(code, patch);
 }
 
 export async function setNetworkActive(
   code: string,
   isActive: boolean
 ): Promise<boolean> {
-  const result = await query(
-    `UPDATE networks SET is_active = $1 WHERE code = $2`,
-    [isActive, code.trim().toUpperCase()]
-  );
-  return (result.rowCount ?? 0) > 0;
+  const updated = await updateNetworkConfig(code, { is_active: isActive });
+  return updated !== null;
 }
 
 export async function isNetworkActive(code: string): Promise<boolean> {

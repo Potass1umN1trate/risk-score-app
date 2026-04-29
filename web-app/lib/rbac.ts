@@ -33,6 +33,7 @@ export function requiredRoleForPath(pathname: string): Role | null {
   if (pathname === "/flagged-addresses" || pathname.startsWith("/flagged-addresses/")) return "moderator";
 
   if (pathname === "/api/analyze") return "user";
+  if (pathname === "/api/networks") return "user";
   if (pathname.startsWith("/api/admin/")) return "admin";
   if (pathname.startsWith("/api/moderator/")) return "moderator";
   if (pathname === "/api/history" || pathname.startsWith("/api/history/")) return "user";

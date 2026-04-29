@@ -53,6 +53,12 @@ The same string address can exist in different networks. Never query by address 
 | code | VARCHAR(16) | UNIQUE — e.g. `BTC`, `ETH`, `TRX` |
 | name | VARCHAR(64) | |
 | is_active | BOOLEAN | NOT NULL DEFAULT TRUE |
+| default_depth | INTEGER | NOT NULL DEFAULT 2; must be >= 1 |
+| max_depth | INTEGER | NOT NULL DEFAULT 5; must be >= default_depth |
+| default_tx_limit | INTEGER | NOT NULL DEFAULT 10; must be >= 1 |
+| max_tx_limit | INTEGER | NOT NULL DEFAULT 200; must be >= default_tx_limit |
+| default_period_days | INTEGER | nullable; NULL = no period filter by default; when set must be >= 1 and <= max_period_days |
+| max_period_days | INTEGER | NOT NULL DEFAULT 3650; must be >= 1 |
 
 ### risk_categories
 | Column | Type | Notes |

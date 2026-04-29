@@ -70,10 +70,30 @@ data:
     -- Networks (BTC, ETH, TRX, …)
     -- =============================================
     CREATE TABLE IF NOT EXISTS networks (
-      id        SERIAL      PRIMARY KEY,
-      code      VARCHAR(16) NOT NULL UNIQUE,  -- BTC, ETH, TRX
-      name      VARCHAR(64) NOT NULL,
-      is_active BOOLEAN     NOT NULL DEFAULT TRUE
+      id                  SERIAL      PRIMARY KEY,
+      code                VARCHAR(16) NOT NULL UNIQUE,  -- BTC, ETH, TRX
+      name                VARCHAR(64) NOT NULL,
+      is_active           BOOLEAN     NOT NULL DEFAULT TRUE,
+      default_depth       INTEGER     NOT NULL DEFAULT 2,
+      max_depth           INTEGER     NOT NULL DEFAULT 5,
+      default_tx_limit    INTEGER     NOT NULL DEFAULT 10,
+      max_tx_limit        INTEGER     NOT NULL DEFAULT 200,
+      default_period_days INTEGER,
+      max_period_days     INTEGER     NOT NULL DEFAULT 3650,
+      CONSTRAINT chk_networks_default_depth
+        CHECK (default_depth >= 1),
+      CONSTRAINT chk_networks_max_depth
+        CHECK (max_depth >= default_depth),
+      CONSTRAINT chk_networks_default_tx_limit
+        CHECK (default_tx_limit >= 1),
+      CONSTRAINT chk_networks_max_tx_limit
+        CHECK (max_tx_limit >= default_tx_limit),
+      CONSTRAINT chk_networks_default_period_days_min
+        CHECK (default_period_days IS NULL OR default_period_days >= 1),
+      CONSTRAINT chk_networks_max_period_days
+        CHECK (max_period_days >= 1),
+      CONSTRAINT chk_networks_default_period_days_max
+        CHECK (default_period_days IS NULL OR default_period_days <= max_period_days)
     );
 
     INSERT INTO networks (code, name) VALUES

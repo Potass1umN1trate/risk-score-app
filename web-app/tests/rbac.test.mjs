@@ -28,6 +28,7 @@ function requiredRoleForPath(pathname) {
   if (pathname === "/history" || pathname.startsWith("/history/")) return "user";
 
   if (pathname === "/api/analyze") return "user";
+  if (pathname === "/api/networks") return "user";
   if (pathname.startsWith("/api/admin/")) return "admin";
   if (pathname.startsWith("/api/moderator/")) return "moderator";
   // Fixed: exact-match on /api/history covers the bare GET /api/history route
@@ -102,6 +103,7 @@ test("unprotected public path: no token needed", () => {
 
 test("existing protected paths still return correct roles", () => {
   assert.equal(requiredRoleForPath("/api/analyze"), "user");
+  assert.equal(requiredRoleForPath("/api/networks"), "user");
   assert.equal(requiredRoleForPath("/api/admin/users"), "admin");
   assert.equal(requiredRoleForPath("/api/moderator/flags"), "moderator");
   assert.equal(requiredRoleForPath("/api/flagged-addresses/list"), "moderator");
@@ -122,6 +124,11 @@ test("no regression: /api/history prefix does not bleed into unrelated paths", (
 test("OAuth user JWT (role=user, isBlocked=false) passes /api/analyze", () => {
   const token = { id: "oauth-user-uuid", role: "user", isBlocked: false };
   assert.equal(middlewareDecision("/api/analyze", token), "next");
+});
+
+test("OAuth user JWT (role=user, isBlocked=false) passes /api/networks", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: false };
+  assert.equal(middlewareDecision("/api/networks", token), "next");
 });
 
 test("OAuth user JWT (role=user, isBlocked=false) passes /dashboard", () => {
@@ -147,6 +154,11 @@ test("OAuth user JWT (role=user, isBlocked=false) is denied /admin (insufficient
 test("OAuth user JWT (isBlocked=true) is denied /api/analyze → 403", () => {
   const token = { id: "oauth-user-uuid", role: "user", isBlocked: true };
   assert.equal(middlewareDecision("/api/analyze", token), 403);
+});
+
+test("OAuth user JWT (isBlocked=true) is denied /api/networks → 403", () => {
+  const token = { id: "oauth-user-uuid", role: "user", isBlocked: true };
+  assert.equal(middlewareDecision("/api/networks", token), 403);
 });
 
 test("OAuth user JWT (isBlocked=true) is denied /dashboard → redirect-unauthorized", () => {
@@ -210,6 +222,34 @@ test("/api/admin/networks: requiredRoleForPath returns 'admin'", () => {
   assert.equal(requiredRoleForPath("/api/admin/networks"), "admin");
 });
 
+test("/api/networks: requiredRoleForPath returns 'user'", () => {
+  assert.equal(requiredRoleForPath("/api/networks"), "user");
+});
+
+test("/api/networks-extra: remains unprotected by exact /api/networks rule", () => {
+  assert.equal(requiredRoleForPath("/api/networks-extra"), null);
+});
+
+test("/api/networks: unauthenticated → 401", () => {
+  assert.equal(middlewareDecision("/api/networks", null), 401);
+});
+
+test("/api/networks: user role → passes", () => {
+  assert.equal(middlewareDecision("/api/networks", { role: "user", isBlocked: false }), "next");
+});
+
+test("/api/networks: moderator role → passes", () => {
+  assert.equal(middlewareDecision("/api/networks", { role: "moderator", isBlocked: false }), "next");
+});
+
+test("/api/networks: admin role → passes", () => {
+  assert.equal(middlewareDecision("/api/networks", { role: "admin", isBlocked: false }), "next");
+});
+
+test("/api/networks: blocked user → 403", () => {
+  assert.equal(middlewareDecision("/api/networks", { role: "user", isBlocked: true }), 403);
+});
+
 test("/api/admin/networks/BTC: requiredRoleForPath returns 'admin'", () => {
   assert.equal(requiredRoleForPath("/api/admin/networks/BTC"), "admin");
 });
@@ -238,7 +278,15 @@ test("/api/admin/networks/BTC: user role → 403", () => {
   assert.equal(middlewareDecision("/api/admin/networks/BTC", { role: "user", isBlocked: false }), 403);
 });
 
+test("PATCH /api/admin/networks/BTC limits: user role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/networks/BTC", { role: "user", isBlocked: false }), 403);
+});
+
 test("/api/admin/networks/BTC: admin role → passes", () => {
+  assert.equal(middlewareDecision("/api/admin/networks/BTC", { role: "admin", isBlocked: false }), "next");
+});
+
+test("PATCH /api/admin/networks/BTC limits: admin role → passes", () => {
   assert.equal(middlewareDecision("/api/admin/networks/BTC", { role: "admin", isBlocked: false }), "next");
 });
 

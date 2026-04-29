@@ -22,10 +22,23 @@ interface FormErrors {
 interface NetworkOption {
   code: string;
   name: string;
+  default_depth: number;
+  max_depth: number;
+  default_tx_limit: number;
+  max_tx_limit: number;
+  default_period_days: number | null;
+  max_period_days: number;
 }
 
-function validateForm(f: AnalyzeRequest & { period_days_raw: string }): FormErrors {
+function validateForm(
+  f: AnalyzeRequest & { period_days_raw: string },
+  limits: NetworkOption | null
+): FormErrors {
   const errors: FormErrors = {};
+  const maxDepth = limits?.max_depth ?? 5;
+  const maxTxLimit = limits?.max_tx_limit ?? 200;
+  const maxPeriodDays = limits?.max_period_days ?? 3650;
+
   if (!f.address || f.address.trim().length < 10) {
     errors.address = "Address must be at least 10 characters.";
   } else if (f.address.trim().length > 128) {
@@ -34,16 +47,16 @@ function validateForm(f: AnalyzeRequest & { period_days_raw: string }): FormErro
   if (!f.network) {
     errors.network = "Select a network.";
   }
-  if (f.depth < 1 || f.depth > 5) {
-    errors.depth = "Depth must be between 1 and 5.";
+  if (!Number.isInteger(f.depth) || f.depth < 1 || f.depth > maxDepth) {
+    errors.depth = `Depth must be between 1 and ${maxDepth}.`;
   }
-  if (f.tx_limit < 1 || f.tx_limit > 200) {
-    errors.tx_limit = "Transaction limit must be between 1 and 200.";
+  if (!Number.isInteger(f.tx_limit) || f.tx_limit < 1 || f.tx_limit > maxTxLimit) {
+    errors.tx_limit = `Transaction limit must be between 1 and ${maxTxLimit}.`;
   }
   if (f.period_days_raw !== "") {
     const n = Number(f.period_days_raw);
-    if (!Number.isInteger(n) || n < 1 || n > 3650) {
-      errors.period_days = "Period must be between 1 and 3650 days.";
+    if (!Number.isInteger(n) || n < 1 || n > maxPeriodDays) {
+      errors.period_days = `Period must be between 1 and ${maxPeriodDays} days.`;
     }
   }
   return errors;
@@ -98,6 +111,7 @@ export default function AnalyzePage() {
   const [loading, setLoading] = useState(false);
   const [bannerError, setBannerError] = useState<{ kind: "warning" | "error"; message: string } | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const selectedNetwork = networks.find((n) => n.code === network) ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -135,6 +149,18 @@ export default function AnalyzePage() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!selectedNetwork) return;
+    setDepth(selectedNetwork.default_depth);
+    setTxLimit(selectedNetwork.default_tx_limit);
+    setPeriodDaysRaw(
+      selectedNetwork.default_period_days === null
+        ? ""
+        : String(selectedNetwork.default_period_days)
+    );
+    setFormErrors({});
+  }, [selectedNetwork]);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setBannerError(null);
@@ -149,7 +175,7 @@ export default function AnalyzePage() {
       period_days_raw: periodDaysRaw,
     };
 
-    const errors = validateForm(req);
+    const errors = validateForm(req, selectedNetwork);
     if (Object.keys(errors).length > 0) {
       setFormErrors(errors);
       return;
@@ -236,12 +262,12 @@ export default function AnalyzePage() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="depth">Depth (1–5)</label>
+              <label htmlFor="depth">Depth (1–{selectedNetwork?.max_depth ?? 5})</label>
               <input
                 id="depth"
                 type="number"
                 min={1}
-                max={5}
+                max={selectedNetwork?.max_depth ?? 5}
                 value={depth}
                 onChange={(e) => setDepth(Number(e.target.value))}
               />
@@ -251,12 +277,14 @@ export default function AnalyzePage() {
             </div>
 
             <div className="form-group">
-              <label htmlFor="tx_limit">Transaction limit (1–200)</label>
+              <label htmlFor="tx_limit">
+                Transaction limit (1–{selectedNetwork?.max_tx_limit ?? 200})
+              </label>
               <input
                 id="tx_limit"
                 type="number"
                 min={1}
-                max={200}
+                max={selectedNetwork?.max_tx_limit ?? 200}
                 value={txLimit}
                 onChange={(e) => setTxLimit(Number(e.target.value))}
               />
@@ -271,7 +299,7 @@ export default function AnalyzePage() {
                 id="period_days"
                 type="number"
                 min={1}
-                max={3650}
+                max={selectedNetwork?.max_period_days ?? 3650}
                 placeholder="leave blank for all time"
                 value={periodDaysRaw}
                 onChange={(e) => setPeriodDaysRaw(e.target.value)}

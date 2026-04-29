@@ -2,11 +2,37 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { authorizeFreshUser } from "@/lib/authz";
-import { isNetworkActive, patchAnalysisRequestUserId } from "@/lib/db";
+import { getNetworkAnalysisConfig, patchAnalysisRequestUserId } from "@/lib/db";
 
 const ANALYTICS_SERVICE_URL = process.env.ANALYTICS_SERVICE_URL;
 
 export const runtime = "nodejs";
+
+const ANALYTICS_LIMIT_CAPS = {
+  max_depth: 5,
+  max_tx_limit: 200,
+  max_period_days: 3650,
+} as const;
+
+function invalidRequest(detail: string) {
+  return NextResponse.json(
+    {
+      error_code: "INVALID_REQUEST",
+      detail,
+      request_id: null,
+    },
+    { status: 422 }
+  );
+}
+
+function readInteger(
+  body: Record<string, unknown>,
+  field: string,
+  fallback: number
+): number | null {
+  if (body[field] === undefined) return fallback;
+  return Number.isInteger(body[field]) ? (body[field] as number) : null;
+}
 
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions);
@@ -73,9 +99,9 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let activeNetwork = false;
+  let networkConfig: Awaited<ReturnType<typeof getNetworkAnalysisConfig>>;
   try {
-    activeNetwork = await isNetworkActive(network);
+    networkConfig = await getNetworkAnalysisConfig(network);
   } catch {
     return NextResponse.json(
       {
@@ -87,7 +113,7 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  if (!activeNetwork) {
+  if (!networkConfig?.is_active) {
     return NextResponse.json(
       {
         error_code: "UNSUPPORTED_NETWORK",
@@ -98,12 +124,62 @@ export async function POST(req: NextRequest) {
     );
   }
 
+  const bodyRecord = body as Record<string, unknown>;
+  const maxDepth = Math.min(networkConfig.max_depth, ANALYTICS_LIMIT_CAPS.max_depth);
+  const maxTxLimit = Math.min(networkConfig.max_tx_limit, ANALYTICS_LIMIT_CAPS.max_tx_limit);
+  const maxPeriodDays = Math.min(
+    networkConfig.max_period_days,
+    ANALYTICS_LIMIT_CAPS.max_period_days
+  );
+
+  const depth = readInteger(bodyRecord, "depth", networkConfig.default_depth);
+  if (depth === null || depth < 1 || depth > maxDepth) {
+    return invalidRequest(`depth must be an integer between 1 and ${maxDepth}`);
+  }
+
+  const txLimit = readInteger(bodyRecord, "tx_limit", networkConfig.default_tx_limit);
+  if (txLimit === null || txLimit < 1 || txLimit > maxTxLimit) {
+    return invalidRequest(
+      `tx_limit must be an integer between 1 and ${maxTxLimit}`
+    );
+  }
+
+  let periodDays: number | null;
+  if (bodyRecord.period_days === undefined) {
+    periodDays = networkConfig.default_period_days;
+  } else if (bodyRecord.period_days === null) {
+    periodDays = null;
+  } else if (Number.isInteger(bodyRecord.period_days)) {
+    periodDays = bodyRecord.period_days as number;
+  } else {
+    return invalidRequest(
+      `period_days must be an integer between 1 and ${maxPeriodDays}, or null`
+    );
+  }
+
+  if (
+    periodDays !== null &&
+    (periodDays < 1 || periodDays > maxPeriodDays)
+  ) {
+    return invalidRequest(
+      `period_days must be an integer between 1 and ${maxPeriodDays}, or null`
+    );
+  }
+
+  const upstreamBody = {
+    ...bodyRecord,
+    network: networkConfig.code,
+    depth,
+    tx_limit: txLimit,
+    period_days: periodDays,
+  };
+
   let upstream: Response;
   try {
     upstream = await fetch(`${ANALYTICS_SERVICE_URL}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(body),
+      body: JSON.stringify(upstreamBody),
     });
   } catch {
     return NextResponse.json(
