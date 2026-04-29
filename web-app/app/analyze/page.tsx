@@ -1,8 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
-  SUPPORTED_NETWORKS,
   submitAnalysis,
   type AnalyzeRequest,
   type AnalyzeResponse,
@@ -18,6 +17,11 @@ interface FormErrors {
   depth?: string;
   tx_limit?: string;
   period_days?: string;
+}
+
+interface NetworkOption {
+  code: string;
+  name: string;
 }
 
 function validateForm(f: AnalyzeRequest & { period_days_raw: string }): FormErrors {
@@ -83,7 +87,9 @@ function mapErrorCode(err: AnalyticsErrorResponse): ErrorDisplay {
 
 export default function AnalyzePage() {
   const [address, setAddress] = useState("");
-  const [network, setNetwork] = useState("BTC");
+  const [network, setNetwork] = useState("");
+  const [networks, setNetworks] = useState<NetworkOption[]>([]);
+  const [networksLoading, setNetworksLoading] = useState(true);
   const [depth, setDepth] = useState(2);
   const [txLimit, setTxLimit] = useState(10);
   const [periodDaysRaw, setPeriodDaysRaw] = useState("");
@@ -92,6 +98,42 @@ export default function AnalyzePage() {
   const [loading, setLoading] = useState(false);
   const [bannerError, setBannerError] = useState<{ kind: "warning" | "error"; message: string } | null>(null);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function fetchNetworks() {
+      setNetworksLoading(true);
+      try {
+        const res = await fetch("/api/networks");
+        if (!res.ok) {
+          throw new Error(`HTTP ${res.status}`);
+        }
+        const data: NetworkOption[] = await res.json();
+        if (cancelled) return;
+
+        setNetworks(data);
+        setNetwork((current) => {
+          if (current && data.some((n) => n.code === current)) return current;
+          return data[0]?.code ?? "";
+        });
+        if (data.length === 0) {
+          setBannerError({ kind: "error", message: "No active networks are available." });
+        }
+      } catch {
+        if (!cancelled) {
+          setBannerError({ kind: "error", message: "Unable to load active networks." });
+        }
+      } finally {
+        if (!cancelled) setNetworksLoading(false);
+      }
+    }
+
+    fetchNetworks();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -176,9 +218,16 @@ export default function AnalyzePage() {
                 id="network"
                 value={network}
                 onChange={(e) => setNetwork(e.target.value)}
+                disabled={networksLoading || networks.length === 0}
               >
-                {SUPPORTED_NETWORKS.map((n) => (
-                  <option key={n} value={n}>{n}</option>
+                {networksLoading && <option value="">Loading networks…</option>}
+                {!networksLoading && networks.length === 0 && (
+                  <option value="">No active networks</option>
+                )}
+                {networks.map((n) => (
+                  <option key={n.code} value={n.code}>
+                    {n.code} — {n.name}
+                  </option>
                 ))}
               </select>
               {formErrors.network && (
@@ -234,7 +283,11 @@ export default function AnalyzePage() {
           </div>
 
           <div style={{ marginTop: "1.25rem" }}>
-            <button type="submit" className="btn" disabled={loading}>
+            <button
+              type="submit"
+              className="btn"
+              disabled={loading || networksLoading || networks.length === 0}
+            >
               {loading && <span className="spinner" />}
               {loading ? "Analyzing…" : "Analyze"}
             </button>

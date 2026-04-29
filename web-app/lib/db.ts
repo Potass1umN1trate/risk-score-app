@@ -787,6 +787,7 @@ export interface NetworkItem {
   id: number;
   code: string;
   name: string;
+  is_active?: boolean;
 }
 
 export async function getNetworks(): Promise<NetworkItem[]> {
@@ -795,6 +796,40 @@ export async function getNetworks(): Promise<NetworkItem[]> {
     []
   );
   return result.rows;
+}
+
+export interface AdminNetworkItem {
+  id: number;
+  code: string;
+  name: string;
+  is_active: boolean;
+}
+
+export async function listAllNetworks(): Promise<AdminNetworkItem[]> {
+  const result = await query<AdminNetworkItem & QueryResultRow>(
+    `SELECT id, code, name, is_active FROM networks ORDER BY code`,
+    []
+  );
+  return result.rows;
+}
+
+export async function setNetworkActive(
+  code: string,
+  isActive: boolean
+): Promise<boolean> {
+  const result = await query(
+    `UPDATE networks SET is_active = $1 WHERE code = $2`,
+    [isActive, code.trim().toUpperCase()]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function isNetworkActive(code: string): Promise<boolean> {
+  const result = await query<{ is_active: boolean } & QueryResultRow>(
+    `SELECT is_active FROM networks WHERE code = $1 LIMIT 1`,
+    [code.trim().toUpperCase()]
+  );
+  return result.rows[0]?.is_active === true;
 }
 
 export async function findUserById(id: string): Promise<AuthUserRecord | null> {

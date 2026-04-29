@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { authorizeFreshUser } from "@/lib/authz";
-import { patchAnalysisRequestUserId } from "@/lib/db";
+import { isNetworkActive, patchAnalysisRequestUserId } from "@/lib/db";
 
 const ANALYTICS_SERVICE_URL = process.env.ANALYTICS_SERVICE_URL;
 
@@ -55,6 +55,46 @@ export async function POST(req: NextRequest) {
         request_id: null,
       },
       { status: 422 }
+    );
+  }
+
+  const network = typeof body === "object" && body !== null
+    ? (body as Record<string, unknown>).network
+    : undefined;
+
+  if (typeof network !== "string" || !network.trim()) {
+    return NextResponse.json(
+      {
+        error_code: "INVALID_REQUEST",
+        detail: "network is required",
+        request_id: null,
+      },
+      { status: 422 }
+    );
+  }
+
+  let activeNetwork = false;
+  try {
+    activeNetwork = await isNetworkActive(network);
+  } catch {
+    return NextResponse.json(
+      {
+        error_code: "INTERNAL_ERROR",
+        detail: "Network configuration is unavailable",
+        request_id: null,
+      },
+      { status: 500 }
+    );
+  }
+
+  if (!activeNetwork) {
+    return NextResponse.json(
+      {
+        error_code: "UNSUPPORTED_NETWORK",
+        detail: "This network is not supported.",
+        request_id: null,
+      },
+      { status: 400 }
     );
   }
 

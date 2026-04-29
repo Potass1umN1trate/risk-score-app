@@ -204,6 +204,56 @@ test("/api/admin/users/some-id: admin role → passes", () => {
   assert.equal(middlewareDecision("/api/admin/users/some-id", { role: "admin", isBlocked: false }), "next");
 });
 
+// ─── Admin network management paths ─────────────────────────────────────────
+
+test("/api/admin/networks: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/api/admin/networks"), "admin");
+});
+
+test("/api/admin/networks/BTC: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/api/admin/networks/BTC"), "admin");
+});
+
+test("/admin/networks: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/admin/networks"), "admin");
+});
+
+test("/api/admin/networks: unauthenticated → 401", () => {
+  assert.equal(middlewareDecision("/api/admin/networks", null), 401);
+});
+
+test("/api/admin/networks: user role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/networks", { role: "user", isBlocked: false }), 403);
+});
+
+test("/api/admin/networks: moderator role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/networks", { role: "moderator", isBlocked: false }), 403);
+});
+
+test("/api/admin/networks: admin role → passes", () => {
+  assert.equal(middlewareDecision("/api/admin/networks", { role: "admin", isBlocked: false }), "next");
+});
+
+test("/api/admin/networks/BTC: user role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/networks/BTC", { role: "user", isBlocked: false }), 403);
+});
+
+test("/api/admin/networks/BTC: admin role → passes", () => {
+  assert.equal(middlewareDecision("/api/admin/networks/BTC", { role: "admin", isBlocked: false }), "next");
+});
+
+test("/admin/networks page: unauthenticated → redirect-login", () => {
+  assert.equal(middlewareDecision("/admin/networks", null), "redirect-login");
+});
+
+test("/admin/networks page: user role → redirect-unauthorized", () => {
+  assert.equal(middlewareDecision("/admin/networks", { role: "user", isBlocked: false }), "redirect-unauthorized");
+});
+
+test("/admin/networks page: admin role → passes", () => {
+  assert.equal(middlewareDecision("/admin/networks", { role: "admin", isBlocked: false }), "next");
+});
+
 test("/admin/users page: unauthenticated → redirect-login", () => {
   assert.equal(middlewareDecision("/admin/users", null), "redirect-login");
 });

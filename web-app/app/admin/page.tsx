@@ -13,6 +13,11 @@ export default function AdminPage() {
           <span className="menu-title">User management</span>
           <span className="menu-desc">View, create, edit roles, block, and delete user accounts.</span>
         </Link>
+
+        <Link className="menu-item" href="/admin/networks">
+          <span className="menu-title">Network management</span>
+          <span className="menu-desc">Enable or disable networks available for new analyses.</span>
+        </Link>
       </div>
     </div>
   );
