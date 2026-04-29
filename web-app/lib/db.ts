@@ -633,6 +633,12 @@ export async function updateFlaggedAddress(
   id: string,
   patch: { risk_category_code?: string; comment?: string | null }
 ): Promise<FlaggedAddressItem | null> {
+  if (patch.risk_category_code === undefined && patch.comment === undefined) {
+    return null;
+  }
+
+  let rowCount = 0;
+
   if (patch.risk_category_code !== undefined) {
     const categoryResult = await query<{ id: number }>(
       `SELECT id FROM risk_categories WHERE code = $1`,
@@ -644,22 +650,27 @@ export async function updateFlaggedAddress(
     const risk_category_id = categoryResult.rows[0].id;
 
     if (patch.comment !== undefined) {
-      await query(
+      const result = await query(
         `UPDATE flagged_addresses SET risk_category_id = $1, comment = $2 WHERE id = $3 AND is_active = TRUE`,
         [risk_category_id, patch.comment, id]
       );
+      rowCount = result.rowCount ?? 0;
     } else {
-      await query(
+      const result = await query(
         `UPDATE flagged_addresses SET risk_category_id = $1 WHERE id = $2 AND is_active = TRUE`,
         [risk_category_id, id]
       );
+      rowCount = result.rowCount ?? 0;
     }
-  } else if (patch.comment !== undefined) {
-    await query(
+  } else {
+    const result = await query(
       `UPDATE flagged_addresses SET comment = $1 WHERE id = $2 AND is_active = TRUE`,
       [patch.comment, id]
     );
+    rowCount = result.rowCount ?? 0;
   }
+
+  if (rowCount === 0) return null;
 
   return getFlaggedAddressById(id);
 }

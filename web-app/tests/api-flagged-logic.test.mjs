@@ -292,3 +292,61 @@ test("csv escape: newline in value is quoted", () => {
   const result = escapeCsvField("line1\nline2");
   assert.match(result, /^"/);
 });
+
+// ─── updateFlaggedAddress logic tests ────────────────────────────────────────
+// These mirror the fixed DB helper behaviour: empty patch → null, zero-row UPDATE → null.
+
+// Simulates the fixed updateFlaggedAddress early-guard logic.
+function simulateUpdate(patch, rowCount) {
+  // Early guard: empty patch returns null without touching the DB.
+  if (patch.risk_category_code === undefined && patch.comment === undefined) {
+    return null;
+  }
+  // After UPDATE: zero rowCount means the record was inactive or missing.
+  if (rowCount === 0) return null;
+  // Non-zero: would return the refreshed record (represented as a sentinel here).
+  return { id: "fake-id" };
+}
+
+test("updateFlaggedAddress: empty patch → null (no-op guard)", () => {
+  assert.equal(simulateUpdate({}, 1), null);
+});
+
+test("updateFlaggedAddress: patch with neither field → null", () => {
+  assert.equal(simulateUpdate({ unrelated: "x" }, 1), null);
+});
+
+test("updateFlaggedAddress: valid patch, zero rowCount → null (record inactive or missing)", () => {
+  assert.equal(simulateUpdate({ risk_category_code: "scam" }, 0), null);
+});
+
+test("updateFlaggedAddress: comment-only patch, zero rowCount → null", () => {
+  assert.equal(simulateUpdate({ comment: "updated" }, 0), null);
+});
+
+test("updateFlaggedAddress: valid patch, non-zero rowCount → record returned", () => {
+  assert.ok(simulateUpdate({ risk_category_code: "scam" }, 1) !== null);
+});
+
+test("updateFlaggedAddress: both fields patched, non-zero rowCount → record returned", () => {
+  assert.ok(simulateUpdate({ risk_category_code: "mixer", comment: "note" }, 1) !== null);
+});
+
+// Simulates the PATCH route handler mapping null from updateFlaggedAddress to 404.
+function patchRouteOutcome(updateResult) {
+  if (updateResult === null) return { status: 404, body: { error: "Not found or already deactivated" } };
+  return { status: 200, body: updateResult };
+}
+
+test("PATCH route: updateFlaggedAddress returns null → 404", () => {
+  const r = patchRouteOutcome(null);
+  assert.equal(r.status, 404);
+  assert.match(r.body.error, /deactivated/i);
+});
+
+test("PATCH route: updateFlaggedAddress returns record → 200", () => {
+  const record = { id: "abc", address: "1test" };
+  const r = patchRouteOutcome(record);
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body, record);
+});

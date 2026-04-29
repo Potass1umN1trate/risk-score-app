@@ -128,7 +128,9 @@
       "Bash(xargs cat *)",
       "Bash(node --test tests/auth-config.test.mjs)",
       "Bash(node --test tests/rbac.test.mjs)",
-      "Bash(node --test tests/auth-config.test.mjs tests/rbac.test.mjs)"
+      "Bash(node --test tests/auth-config.test.mjs tests/rbac.test.mjs)",
+      "Bash(node --test tests/rbac-flagged.test.mjs tests/api-flagged-logic.test.mjs tests/db-flagged.test.mjs)",
+      "Bash(node --test tests/rbac.test.mjs tests/api-history-logic.test.mjs tests/export-ui.test.mjs tests/auth-config.test.mjs tests/api-oauth-flow.test.mjs tests/oauth-db.test.mjs)"
     ]
   }
 }

@@ -222,6 +222,23 @@ test("importFlaggedAddresses: ON CONFLICT DO NOTHING skips duplicates", { skip: 
   assert.equal(r2.rowCount, 0);
 });
 
+test("update: UPDATE on inactive record returns rowCount=0 (helper would return null)", { skip: SKIP }, async () => {
+  const addr = `inact${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const id = await createRecord("BTC", addr, "scam", testUserId);
+  createdIds.push(id);
+
+  // Deactivate it first.
+  await query("UPDATE flagged_addresses SET is_active = FALSE WHERE id = $1", [id]);
+
+  // Attempt UPDATE with is_active = TRUE guard — should match 0 rows.
+  const mixerCatId = await getCategoryId("mixer");
+  const result = await query(
+    "UPDATE flagged_addresses SET risk_category_id = $1 WHERE id = $2 AND is_active = TRUE",
+    [mixerCatId, id]
+  );
+  assert.equal(result.rowCount, 0);
+});
+
 test("update: changes category and comment", { skip: SKIP }, async () => {
   const addr = `upd${randomUUID().replace(/-/g, "").slice(0, 17)}`;
   const id = await createRecord("ETH", addr, "scam", testUserId, "original");
