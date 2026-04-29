@@ -36,9 +36,6 @@ export default async function RootLayout({
                   {role && hasRequiredRole(role, "moderator") && (
                     <Link href="/flagged-addresses">Flagged</Link>
                   )}
-                  {role && hasRequiredRole(role, "moderator") && (
-                    <Link href="/moderator">Moderator</Link>
-                  )}
                   {role && hasRequiredRole(role, "admin") && (
                     <Link href="/admin">Admin</Link>
                   )}
