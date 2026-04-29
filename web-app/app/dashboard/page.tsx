@@ -40,17 +40,10 @@ export default async function DashboardPage() {
           </Link>
         )}
 
-        {hasRequiredRole(role, "moderator") && (
-          <Link className="menu-item" href="/moderator">
-            <span className="menu-title">Moderator tools</span>
-            <span className="menu-desc">Placeholder for future moderator workflows.</span>
-          </Link>
-        )}
-
         {hasRequiredRole(role, "admin") && (
           <Link className="menu-item" href="/admin">
             <span className="menu-title">Admin tools</span>
-            <span className="menu-desc">Placeholder for future administration workflows.</span>
+            <span className="menu-desc">Manage users, view audit logs, and configure system settings.</span>
           </Link>
         )}
       </div>

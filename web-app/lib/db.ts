@@ -819,3 +819,227 @@ export async function findUserById(id: string): Promise<AuthUserRecord | null> {
   const row = result.rows[0];
   return row ? rowToAuthUser(row) : null;
 }
+
+// ─── Admin user management ────────────────────────────────────────────────────
+
+export interface UserListItem {
+  id: string;
+  email: string;
+  role: Role;
+  isBlocked: boolean;
+  createdAt: string;
+  hasPassword: boolean;
+  hasOAuth: boolean;
+}
+
+export interface UserDetailItem extends UserListItem {
+  oauthProviders: string[];
+}
+
+export interface UserListFilters {
+  email?: string;
+  role?: Role;
+  isBlocked?: boolean;
+}
+
+interface AdminUserRow extends QueryResultRow {
+  id: string;
+  email: string;
+  is_blocked: boolean;
+  created_at: Date;
+  roles: string[] | null;
+  has_password: boolean;
+  oauth_providers: string[] | null;
+}
+
+function rowToUserListItem(row: AdminUserRow): UserListItem {
+  return {
+    id: row.id,
+    email: row.email,
+    role: (strongestRole(row.roles ?? []) ?? "user") as Role,
+    isBlocked: row.is_blocked,
+    createdAt: row.created_at instanceof Date
+      ? row.created_at.toISOString()
+      : String(row.created_at),
+    hasPassword: row.has_password,
+    hasOAuth: (row.oauth_providers ?? []).length > 0,
+  };
+}
+
+function rowToUserDetailItem(row: AdminUserRow): UserDetailItem {
+  return {
+    ...rowToUserListItem(row),
+    oauthProviders: row.oauth_providers ?? [],
+  };
+}
+
+const ADMIN_USER_SELECT = `
+  SELECT
+    u.id,
+    u.email,
+    u.is_blocked,
+    u.created_at,
+    COALESCE(array_agg(DISTINCT r.name) FILTER (WHERE r.name IS NOT NULL), '{}') AS roles,
+    u.password_hash IS NOT NULL AS has_password,
+    COALESCE(array_agg(DISTINCT oa.provider) FILTER (WHERE oa.provider IS NOT NULL), '{}') AS oauth_providers
+  FROM users u
+  LEFT JOIN user_roles ur ON ur.user_id = u.id
+  LEFT JOIN roles r ON r.id = ur.role_id
+  LEFT JOIN oauth_accounts oa ON oa.user_id = u.id
+`;
+
+export async function listUsers(
+  filters: UserListFilters,
+  limit: number,
+  offset: number
+): Promise<{ items: UserListItem[]; total: number }> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (filters.email) {
+    params.push(`%${filters.email}%`);
+    conditions.push(`u.email ILIKE $${params.length}`);
+  }
+  if (filters.isBlocked !== undefined) {
+    params.push(filters.isBlocked);
+    conditions.push(`u.is_blocked = $${params.length}`);
+  }
+
+  // Role filter requires a HAVING clause since roles come from aggregation.
+  const having = filters.role
+    ? `HAVING array_agg(DISTINCT r.name) FILTER (WHERE r.name IS NOT NULL) @> ARRAY[$${params.length + 1}::text]`
+    : "";
+  if (filters.role) params.push(filters.role);
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const listParams = [...params, limit, offset];
+  const countParams = [...params];
+
+  const [listResult, countResult] = await Promise.all([
+    query<AdminUserRow>(
+      `${ADMIN_USER_SELECT}
+       ${where}
+       GROUP BY u.id, u.email, u.is_blocked, u.created_at, u.password_hash
+       ${having}
+       ORDER BY u.created_at DESC
+       LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+      listParams
+    ),
+    query<{ total: string }>(
+      `SELECT COUNT(*) AS total FROM (
+         ${ADMIN_USER_SELECT}
+         ${where}
+         GROUP BY u.id, u.email, u.is_blocked, u.created_at, u.password_hash
+         ${having}
+       ) AS sub`,
+      countParams
+    ),
+  ]);
+
+  return {
+    items: listResult.rows.map(rowToUserListItem),
+    total: parseInt(countResult.rows[0]?.total ?? "0", 10),
+  };
+}
+
+export async function getUserById(id: string): Promise<UserDetailItem | null> {
+  const result = await query<AdminUserRow>(
+    `${ADMIN_USER_SELECT}
+     WHERE u.id = $1
+     GROUP BY u.id, u.email, u.is_blocked, u.created_at, u.password_hash`,
+    [id]
+  );
+  const row = result.rows[0];
+  return row ? rowToUserDetailItem(row) : null;
+}
+
+export async function adminCreateUser(
+  email: string,
+  passwordHash: string,
+  role: Role
+): Promise<{ id: string; email: string }> {
+  const { randomUUID } = await import("crypto");
+  const id = randomUUID();
+
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(
+      `INSERT INTO roles (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
+      [role]
+    );
+
+    await client.query(
+      `INSERT INTO users (id, email, password_hash, is_blocked) VALUES ($1, $2, $3, FALSE)`,
+      [id, email, passwordHash]
+    );
+
+    await client.query(
+      `INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE name = $2`,
+      [id, role]
+    );
+
+    await client.query("COMMIT");
+    return { id, email };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function setUserRole(userId: string, role: Role): Promise<boolean> {
+  const pool = getPool();
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    await client.query(
+      `INSERT INTO roles (name) VALUES ($1) ON CONFLICT (name) DO NOTHING`,
+      [role]
+    );
+
+    await client.query(`DELETE FROM user_roles WHERE user_id = $1`, [userId]);
+
+    const result = await client.query(
+      `INSERT INTO user_roles (user_id, role_id) SELECT $1, id FROM roles WHERE name = $2`,
+      [userId, role]
+    );
+
+    await client.query("COMMIT");
+    return (result.rowCount ?? 0) > 0;
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function setUserBlocked(userId: string, isBlocked: boolean): Promise<boolean> {
+  const result = await query(
+    `UPDATE users SET is_blocked = $1 WHERE id = $2`,
+    [isBlocked, userId]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function deleteUser(userId: string): Promise<boolean> {
+  const result = await query(`DELETE FROM users WHERE id = $1`, [userId]);
+  return (result.rowCount ?? 0) > 0;
+}
+
+export async function countAdminUsers(): Promise<number> {
+  const result = await query<{ count: string }>(
+    `SELECT COUNT(*) AS count
+     FROM user_roles ur
+     JOIN roles r ON r.id = ur.role_id
+     WHERE r.name = 'admin'`,
+    []
+  );
+  return parseInt(result.rows[0]?.count ?? "0", 10);
+}

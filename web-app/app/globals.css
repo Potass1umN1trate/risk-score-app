@@ -453,6 +453,21 @@ tr:last-child td {
   width: 100%;
 }
 
+/* Role and status badges */
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+.badge-admin    { background: #3b1f6e; color: #c4b5fd; }
+.badge-moderator{ background: #1e3a5f; color: #93c5fd; }
+.badge-user     { background: #1a3a2a; color: #86efac; }
+.badge-blocked  { background: #7f1d1d; color: #fca5a5; }
+.badge-active   { background: #166534; color: #86efac; }
+
 @media (max-width: 600px) {
   .nav-inner { align-items: flex-start; flex-direction: column; }
   .nav-links { align-items: flex-start; flex-wrap: wrap; margin-left: 0; }

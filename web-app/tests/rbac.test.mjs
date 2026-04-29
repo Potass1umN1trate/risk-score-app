@@ -154,6 +154,70 @@ test("OAuth user JWT (isBlocked=true) is denied /dashboard → redirect-unauthor
   assert.equal(middlewareDecision("/dashboard", token), "redirect-unauthorized");
 });
 
+// ─── Admin user management paths ─────────────────────────────────────────────
+
+test("/api/admin/users: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/api/admin/users"), "admin");
+});
+
+test("/api/admin/users/some-id: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/api/admin/users/some-id"), "admin");
+});
+
+test("/admin/users: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/admin/users"), "admin");
+});
+
+test("/admin/users/new: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/admin/users/new"), "admin");
+});
+
+test("/admin/users/some-id: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/admin/users/some-id"), "admin");
+});
+
+test("/api/admin/users: unauthenticated → 401", () => {
+  assert.equal(middlewareDecision("/api/admin/users", null), 401);
+});
+
+test("/api/admin/users: user role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/users", { role: "user", isBlocked: false }), 403);
+});
+
+test("/api/admin/users: moderator role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/users", { role: "moderator", isBlocked: false }), 403);
+});
+
+test("/api/admin/users: admin role → passes", () => {
+  assert.equal(middlewareDecision("/api/admin/users", { role: "admin", isBlocked: false }), "next");
+});
+
+test("/api/admin/users: blocked admin → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/users", { role: "admin", isBlocked: true }), 403);
+});
+
+test("/api/admin/users/some-id: user role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/users/some-id", { role: "user", isBlocked: false }), 403);
+});
+
+test("/api/admin/users/some-id: admin role → passes", () => {
+  assert.equal(middlewareDecision("/api/admin/users/some-id", { role: "admin", isBlocked: false }), "next");
+});
+
+test("/admin/users page: unauthenticated → redirect-login", () => {
+  assert.equal(middlewareDecision("/admin/users", null), "redirect-login");
+});
+
+test("/admin/users page: user role → redirect-unauthorized", () => {
+  assert.equal(middlewareDecision("/admin/users", { role: "user", isBlocked: false }), "redirect-unauthorized");
+});
+
+test("/admin/users page: admin role → passes", () => {
+  assert.equal(middlewareDecision("/admin/users", { role: "admin", isBlocked: false }), "next");
+});
+
+// ─── OAuth JWT claims behave identically to credentials JWT claims for role=user ─
+
 test("OAuth JWT claims behave identically to credentials JWT claims for role=user", () => {
   const credentialsToken = { id: "cred-uuid", role: "user", isBlocked: false };
   const oauthToken      = { id: "oauth-uuid", role: "user", isBlocked: false };

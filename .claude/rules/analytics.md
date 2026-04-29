@@ -51,6 +51,7 @@
 - [ ] Clean up pre-existing Pydantic v2 deprecation warning in analytics tests
 - [ ] Add explicit `NO_TRANSACTIONS_FOUND` / `DATA_INSUFFICIENT` handling for empty transaction graphs instead of scoring all-zero feature vector as normal ML result
 - [ ] Add fallback provider for all networks that currently have only one provider (e.g. BNB Moralis) to improve resilience and reduce `BLOCKCHAIN_UNAVAILABLE` occurrences; this may require schema changes to track multiple providers per network and provider priority
+- [ ] Fix: Address that appers in one analysis, do not appear in an analysis of its direct neighbor from the first analysis (potentially related to normalization or DB lookup); add regression test
 ---
 
 ## Analysis Algorithm
