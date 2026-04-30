@@ -8,6 +8,7 @@ import {
   setUserBlocked,
   deleteUser,
   countAdminUsers,
+  logAuditEvent,
 } from "@/lib/db";
 import { isRole, type Role } from "@/lib/rbac";
 
@@ -95,7 +96,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       }
 
       await setUserRole(id, newRole as Role);
-      // TODO: audit log — USER_ROLE_CHANGE
+      void logAuditEvent({
+        userId: auth.user.id,
+        action: "USER_ROLE_CHANGED",
+        entity: "user",
+        entityId: id,
+        details: { old_role: target.role, new_role: newRole },
+      });
     }
 
     if (hasBlocked) {
@@ -103,7 +110,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         return NextResponse.json({ error: "isBlocked must be a boolean" }, { status: 400 });
       }
       await setUserBlocked(id, patch.isBlocked);
-      // TODO: audit log — USER_BLOCKED / USER_UNBLOCKED
+      void logAuditEvent({
+        userId: auth.user.id,
+        action: patch.isBlocked ? "USER_BLOCKED" : "USER_UNBLOCKED",
+        entity: "user",
+        entityId: id,
+        details: { email: target.email },
+      });
     }
 
     const updated = await getUserById(id);
@@ -147,7 +160,13 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     }
 
     await deleteUser(id);
-    // TODO: audit log — USER_DELETED
+    void logAuditEvent({
+      userId: auth.user.id,
+      action: "USER_DELETED",
+      entity: "user",
+      entityId: id,
+      details: { email: target.email, role: target.role },
+    });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "internal_error" }, { status: 500 });

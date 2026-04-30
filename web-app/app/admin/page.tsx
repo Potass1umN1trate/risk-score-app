@@ -18,6 +18,11 @@ export default function AdminPage() {
           <span className="menu-title">Network management</span>
           <span className="menu-desc">Enable networks and configure per-network analysis limits.</span>
         </Link>
+
+        <Link className="menu-item" href="/admin/audit-logs">
+          <span className="menu-title">Audit log</span>
+          <span className="menu-desc">View the admin action audit journal.</span>
+        </Link>
       </div>
     </div>
   );

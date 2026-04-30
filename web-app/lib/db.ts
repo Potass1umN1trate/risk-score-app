@@ -1204,3 +1204,136 @@ export async function countAdminUsers(): Promise<number> {
   );
   return parseInt(result.rows[0]?.count ?? "0", 10);
 }
+
+// ─── Audit log ────────────────────────────────────────────────────────────────
+
+export interface AuditLogItem {
+  id: string;
+  user_id: string | null;
+  user_email: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  details_json: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export interface AuditLogFilters {
+  action?: string;
+  userId?: string;
+  entity?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
+interface AuditLogRow extends QueryResultRow {
+  id: string;
+  user_id: string | null;
+  user_email: string | null;
+  action: string;
+  entity: string | null;
+  entity_id: string | null;
+  details_json: Record<string, unknown> | null;
+  created_at: Date;
+}
+
+export async function logAuditEvent(event: {
+  userId: string;
+  action: string;
+  entity?: string | null;
+  entityId?: string | null;
+  details?: Record<string, unknown> | null;
+}): Promise<void> {
+  try {
+    const { randomUUID } = await import("crypto");
+    await query(
+      `INSERT INTO audit_logs (id, user_id, action, entity, entity_id, details_json)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
+      [
+        randomUUID(),
+        event.userId,
+        event.action,
+        event.entity ?? null,
+        event.entityId ?? null,
+        event.details ? JSON.stringify(event.details) : null,
+      ]
+    );
+  } catch (err) {
+    console.error("[audit] Failed to write audit event:", err);
+  }
+}
+
+export async function getAuditLogs(
+  filters: AuditLogFilters,
+  limit: number,
+  offset: number
+): Promise<{ items: AuditLogItem[]; total: number }> {
+  const conditions: string[] = [];
+  const params: unknown[] = [];
+
+  if (filters.action) {
+    params.push(filters.action);
+    conditions.push(`al.action = $${params.length}`);
+  }
+  if (filters.userId) {
+    params.push(filters.userId);
+    conditions.push(`al.user_id = $${params.length}`);
+  }
+  if (filters.entity) {
+    params.push(filters.entity);
+    conditions.push(`al.entity = $${params.length}`);
+  }
+  if (filters.dateFrom) {
+    params.push(filters.dateFrom);
+    conditions.push(`al.created_at >= $${params.length}`);
+  }
+  if (filters.dateTo) {
+    params.push(filters.dateTo);
+    conditions.push(`al.created_at < $${params.length}`);
+  }
+
+  const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+  const listParams = [...params, limit, offset];
+  const countParams = [...params];
+
+  const [listResult, countResult] = await Promise.all([
+    query<AuditLogRow>(
+      `SELECT
+         al.id,
+         al.user_id,
+         u.email   AS user_email,
+         al.action,
+         al.entity,
+         al.entity_id,
+         al.details_json,
+         al.created_at
+       FROM audit_logs al
+       LEFT JOIN users u ON u.id = al.user_id
+       ${where}
+       ORDER BY al.created_at DESC
+       LIMIT $${listParams.length - 1} OFFSET $${listParams.length}`,
+      listParams
+    ),
+    query<{ total: string }>(
+      `SELECT COUNT(*) AS total FROM audit_logs al ${where}`,
+      countParams
+    ),
+  ]);
+
+  return {
+    items: listResult.rows.map((row) => ({
+      id: row.id,
+      user_id: row.user_id,
+      user_email: row.user_email,
+      action: row.action,
+      entity: row.entity,
+      entity_id: row.entity_id,
+      details_json: row.details_json ?? null,
+      created_at: row.created_at instanceof Date
+        ? row.created_at.toISOString()
+        : String(row.created_at),
+    })),
+    total: parseInt(countResult.rows[0]?.total ?? "0", 10),
+  };
+}

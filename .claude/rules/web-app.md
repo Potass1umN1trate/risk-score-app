@@ -33,15 +33,15 @@
 - [x] History pages — `/history` (`web-app/app/history/page.tsx`) client component; fetches `/api/history`; paginated table with address, network, risk score, risk-level badge, analyzed-at, optional user column (admin view); "View" link to `/history/[id]`; empty-state prompt to run first analysis; `/history/[id]` (`web-app/app/history/[id]/page.tsx`) client component; fetches `/api/history/[id]`; renders full `ResultPanel`; "Export JSON" button triggers client-side download; "← History" back link; 404/403 error states shown inline
 - [x] Middleware and RBAC updated — `/history/:path*` added to middleware matcher; `requiredRoleForPath` returns `"user"` for `/history` and `/history/*`; unauthenticated page requests redirect to `/login`; unauthenticated API requests return JSON 401
 - [x] Dashboard and nav updated — "Analysis history" card added to `/dashboard`; "History" link added to global nav for authenticated users
+- [x] Admin user management — `GET /api/admin/users` (paginated list with email/role/blocked filters); `POST /api/admin/users` (create user with role); `GET /api/admin/users/[id]` (detail); `PATCH /api/admin/users/[id]` (role change, block/unblock; self-action guard; last-admin guard); `DELETE /api/admin/users/[id]` (delete; last-admin guard); all routes admin-only via `authorizeFreshUser`; pages at `/admin/users` and `/admin/users/[id]`
+- [x] Admin network management — `GET /api/admin/networks` (list all networks including inactive); `PATCH /api/admin/networks/[code]` (toggle `is_active`, update analysis limits with analytics-service constraint validation); pages at `/admin/networks`; admin-only
+- [x] Admin audit log viewer — `GET /api/admin/audit-logs` (paginated, admin-only; filters: `action`, `userId`, `entity`, `dateFrom`, `dateTo`; response: `{items, total, page, limit}`); page at `/admin/audit-logs`; "Audit log" card added to admin hub at `/admin`; `logAuditEvent()` and `getAuditLogs()` helpers added to `lib/db.ts`; audit write failure is best-effort (swallowed, console.error only) and never fails the main action; the following admin actions write audit rows: `USER_CREATED` (POST users), `USER_ROLE_CHANGED` (PATCH role), `USER_BLOCKED` / `USER_UNBLOCKED` (PATCH isBlocked), `USER_DELETED` (DELETE), `NETWORK_CONFIG_CHANGED` (PATCH network); details_json never contains passwords, password hashes, tokens, or secrets; audit_logs schema is unchanged (CHAR(36) PK, user_id FK ON DELETE SET NULL, action VARCHAR(64), entity, entity_id, details_json JSONB, created_at TIMESTAMPTZ)
 
 ## NOT Implemented ❌
 - [ ] Report export to PDF-file (CSV; JSON export from history detail page is implemented)
-- [ ] Web-app REST API for flagged-address management, user management, audit log, system settings
 - [ ] Password reset
 - [ ] Database-backed sessions / immediate global session revocation
-- [ ] Full audit logging: failed login, analysis run, flagged-address changes, admin actions
-- [ ] Admin: user management
-- [ ] Admin: audit log view
+- [ ] Audit logging for: failed login, successful login, user registration, analysis run, flagged-address create/update/deactivate/import/export — all deferred; only the six admin actions listed above are logged in the current iteration
 - [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
 - [ ] Add padding to "Sign In" button

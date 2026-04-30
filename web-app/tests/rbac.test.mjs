@@ -314,6 +314,52 @@ test("/admin/users page: admin role → passes", () => {
   assert.equal(middlewareDecision("/admin/users", { role: "admin", isBlocked: false }), "next");
 });
 
+// ─── Admin audit log paths ────────────────────────────────────────────────────
+
+test("/admin/audit-logs: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/admin/audit-logs"), "admin");
+});
+
+test("/api/admin/audit-logs: requiredRoleForPath returns 'admin'", () => {
+  assert.equal(requiredRoleForPath("/api/admin/audit-logs"), "admin");
+});
+
+test("/admin/audit-logs: unauthenticated → redirect-login", () => {
+  assert.equal(middlewareDecision("/admin/audit-logs", null), "redirect-login");
+});
+
+test("/api/admin/audit-logs: unauthenticated → 401", () => {
+  assert.equal(middlewareDecision("/api/admin/audit-logs", null), 401);
+});
+
+test("/admin/audit-logs: user role → redirect-unauthorized", () => {
+  assert.equal(middlewareDecision("/admin/audit-logs", { role: "user", isBlocked: false }), "redirect-unauthorized");
+});
+
+test("/api/admin/audit-logs: user role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/audit-logs", { role: "user", isBlocked: false }), 403);
+});
+
+test("/admin/audit-logs: moderator role → redirect-unauthorized", () => {
+  assert.equal(middlewareDecision("/admin/audit-logs", { role: "moderator", isBlocked: false }), "redirect-unauthorized");
+});
+
+test("/api/admin/audit-logs: moderator role → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/audit-logs", { role: "moderator", isBlocked: false }), 403);
+});
+
+test("/admin/audit-logs: admin role → passes", () => {
+  assert.equal(middlewareDecision("/admin/audit-logs", { role: "admin", isBlocked: false }), "next");
+});
+
+test("/api/admin/audit-logs: admin role → passes", () => {
+  assert.equal(middlewareDecision("/api/admin/audit-logs", { role: "admin", isBlocked: false }), "next");
+});
+
+test("/api/admin/audit-logs: blocked admin → 403", () => {
+  assert.equal(middlewareDecision("/api/admin/audit-logs", { role: "admin", isBlocked: true }), 403);
+});
+
 // ─── OAuth JWT claims behave identically to credentials JWT claims for role=user ─
 
 test("OAuth JWT claims behave identically to credentials JWT claims for role=user", () => {

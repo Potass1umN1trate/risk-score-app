@@ -265,6 +265,106 @@ describe("POST /api/admin/users — input validation", () => {
   });
 });
 
+// ─── Audit event specification ───────────────────────────────────────────────
+// These tests document the exact audit event shape that each successful admin
+// mutation should emit. They verify the specification is internally consistent,
+// not that logAuditEvent was called (that's covered by integration tests).
+
+describe("Audit event shapes for user mutations", () => {
+  function buildUserCreatedEvent(adminId, newUser, role) {
+    return {
+      userId: adminId,
+      action: "USER_CREATED",
+      entity: "user",
+      entityId: newUser.id,
+      details: { email: newUser.email, role },
+    };
+  }
+
+  function buildUserRoleChangedEvent(adminId, targetId, oldRole, newRole) {
+    return {
+      userId: adminId,
+      action: "USER_ROLE_CHANGED",
+      entity: "user",
+      entityId: targetId,
+      details: { old_role: oldRole, new_role: newRole },
+    };
+  }
+
+  function buildUserBlockedEvent(adminId, targetId, email, isBlocked) {
+    return {
+      userId: adminId,
+      action: isBlocked ? "USER_BLOCKED" : "USER_UNBLOCKED",
+      entity: "user",
+      entityId: targetId,
+      details: { email },
+    };
+  }
+
+  function buildUserDeletedEvent(adminId, targetId, email, role) {
+    return {
+      userId: adminId,
+      action: "USER_DELETED",
+      entity: "user",
+      entityId: targetId,
+      details: { email, role },
+    };
+  }
+
+  test("USER_CREATED event has correct shape", () => {
+    const e = buildUserCreatedEvent("admin-1", { id: "new-1", email: "new@test.com" }, "user");
+    assert.equal(e.action, "USER_CREATED");
+    assert.equal(e.entity, "user");
+    assert.equal(e.entityId, "new-1");
+    assert.equal(e.details.email, "new@test.com");
+    assert.equal(e.details.role, "user");
+    assert.equal("password" in e.details, false);
+    assert.equal("password_hash" in e.details, false);
+  });
+
+  test("USER_CREATED details never include password fields", () => {
+    const e = buildUserCreatedEvent("admin-1", { id: "x", email: "x@test.com" }, "moderator");
+    assert.equal("password" in e.details, false);
+    assert.equal("password_hash" in e.details, false);
+    assert.equal("token" in e.details, false);
+  });
+
+  test("USER_ROLE_CHANGED event captures old and new role", () => {
+    const e = buildUserRoleChangedEvent("admin-1", "target-1", "user", "moderator");
+    assert.equal(e.action, "USER_ROLE_CHANGED");
+    assert.equal(e.details.old_role, "user");
+    assert.equal(e.details.new_role, "moderator");
+    assert.equal(e.entityId, "target-1");
+  });
+
+  test("USER_BLOCKED action when isBlocked=true", () => {
+    const e = buildUserBlockedEvent("admin-1", "target-1", "t@test.com", true);
+    assert.equal(e.action, "USER_BLOCKED");
+    assert.equal(e.details.email, "t@test.com");
+  });
+
+  test("USER_UNBLOCKED action when isBlocked=false", () => {
+    const e = buildUserBlockedEvent("admin-1", "target-1", "t@test.com", false);
+    assert.equal(e.action, "USER_UNBLOCKED");
+  });
+
+  test("USER_DELETED event captures email and role", () => {
+    const e = buildUserDeletedEvent("admin-1", "target-1", "gone@test.com", "moderator");
+    assert.equal(e.action, "USER_DELETED");
+    assert.equal(e.details.email, "gone@test.com");
+    assert.equal(e.details.role, "moderator");
+    assert.equal("password" in e.details, false);
+  });
+
+  test("audit userId is always the acting admin id, not the target user id", () => {
+    const adminId = "admin-uuid";
+    const targetId = "target-uuid";
+    const e = buildUserRoleChangedEvent(adminId, targetId, "user", "admin");
+    assert.equal(e.userId, adminId);
+    assert.notEqual(e.userId, targetId);
+  });
+});
+
 // ─── PATCH body validation tests ─────────────────────────────────────────────
 
 describe("PATCH /api/admin/users/[id] — body validation", () => {

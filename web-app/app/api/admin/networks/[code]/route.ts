@@ -5,6 +5,7 @@ import { authorizeFreshUser } from "@/lib/authz";
 import {
   getNetworkAnalysisConfig,
   updateNetworkConfig,
+  logAuditEvent,
   type NetworkConfigPatch,
 } from "@/lib/db";
 
@@ -175,6 +176,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     if (!updated) {
       return NextResponse.json({ error: "Network not found" }, { status: 404 });
     }
+    void logAuditEvent({
+      userId: authz.user.id,
+      action: "NETWORK_CONFIG_CHANGED",
+      entity: "network",
+      entityId: updated.code,
+      details: { code: updated.code, changes: patch },
+    });
     return NextResponse.json(updated);
   } catch (err) {
     if (err instanceof Error && err.message.includes("violates check constraint")) {

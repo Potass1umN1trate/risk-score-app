@@ -6,6 +6,7 @@ import {
   listUsers,
   adminCreateUser,
   findUserByEmail,
+  logAuditEvent,
   type UserListFilters,
 } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
@@ -102,7 +103,13 @@ export async function POST(req: NextRequest) {
 
     const passwordHash = await hashPassword(password);
     const user = await adminCreateUser(email, passwordHash, role);
-    // TODO: audit log — USER_CREATED
+    void logAuditEvent({
+      userId: auth.user.id,
+      action: "USER_CREATED",
+      entity: "user",
+      entityId: user.id,
+      details: { email: user.email, role },
+    });
     return NextResponse.json({ id: user.id, email: user.email, role }, { status: 201 });
   } catch {
     return NextResponse.json({ error: "internal_error" }, { status: 500 });

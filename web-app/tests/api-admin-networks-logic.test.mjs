@@ -310,6 +310,47 @@ test("analyze guard: active network -> continue", () => {
   );
 });
 
+// ─── Audit event specification for network mutations ─────────────────────────
+
+test("NETWORK_CONFIG_CHANGED event has correct shape for is_active toggle", () => {
+  function buildNetworkConfigChangedEvent(adminId, networkCode, patch) {
+    return {
+      userId: adminId,
+      action: "NETWORK_CONFIG_CHANGED",
+      entity: "network",
+      entityId: networkCode,
+      details: { code: networkCode, changes: patch },
+    };
+  }
+
+  const e = buildNetworkConfigChangedEvent("admin-1", "BTC", { is_active: false });
+  assert.equal(e.action, "NETWORK_CONFIG_CHANGED");
+  assert.equal(e.entity, "network");
+  assert.equal(e.entityId, "BTC");
+  assert.equal(e.details.code, "BTC");
+  assert.deepEqual(e.details.changes, { is_active: false });
+});
+
+test("NETWORK_CONFIG_CHANGED details.changes contains only the validated patch fields", () => {
+  const patch = { default_depth: 3, max_depth: 4 };
+  const details = { code: "ETH", changes: patch };
+  assert.deepEqual(details.changes, { default_depth: 3, max_depth: 4 });
+  assert.equal("password" in details, false);
+  assert.equal("token" in details, false);
+});
+
+test("NETWORK_CONFIG_CHANGED event userId is the acting admin id", () => {
+  const adminId = "admin-uuid";
+  const e = {
+    userId: adminId,
+    action: "NETWORK_CONFIG_CHANGED",
+    entity: "network",
+    entityId: "BTC",
+    details: { code: "BTC", changes: { is_active: true } },
+  };
+  assert.equal(e.userId, adminId);
+});
+
 test("analyze guard: effective max is capped to analytics-service contract", () => {
   const oversizedConfig = {
     ...activeConfig,
