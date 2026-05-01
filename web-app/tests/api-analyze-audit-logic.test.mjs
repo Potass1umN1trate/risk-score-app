@@ -15,7 +15,7 @@ function shouldLogAudit(upstreamOk, data, userId) {
 }
 
 // Mirrors the audit event shape built in /api/analyze/route.ts on success.
-function buildRunAnalysisEvent(userId, role, upstreamBody, data) {
+function buildRunAnalysisEvent(userId, role, requestBody, upstreamBody, data) {
   return {
     userId,
     action: "RUN_ANALYSIS",
@@ -23,7 +23,7 @@ function buildRunAnalysisEvent(userId, role, upstreamBody, data) {
     entity: "analysis",
     entityId: data.request_id,
     details: {
-      address: upstreamBody.address,
+      address: requestBody.address,
       network: upstreamBody.network,
       risk_level: data.risk_level ?? null,
       request_id: data.request_id,
@@ -33,7 +33,8 @@ function buildRunAnalysisEvent(userId, role, upstreamBody, data) {
 }
 
 const sampleUser = { id: "user-uuid-1", email: "alice@example.com", role: "user" };
-const sampleUpstreamBody = { address: "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", network: "BTC", depth: 2, tx_limit: 50 };
+const sampleRequestBody = { address: "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", network: "btc", depth: 2, tx_limit: 50 };
+const sampleUpstreamBody = { network: "BTC", depth: 2, tx_limit: 50 };
 const sampleSuccessData = {
   request_id: "req-uuid-1",
   result_id: "res-uuid-1",
@@ -75,54 +76,54 @@ describe("shouldLogAudit gate", () => {
 
 describe("RUN_ANALYSIS audit event shape", () => {
   test("event has correct action and entity", () => {
-    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleUpstreamBody, sampleSuccessData);
+    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleRequestBody, sampleUpstreamBody, sampleSuccessData);
     assert.equal(e.action, "RUN_ANALYSIS");
     assert.equal(e.entity, "analysis");
     assert.equal(e.entityId, "req-uuid-1");
   });
 
   test("event userId is the authenticated user id", () => {
-    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleUpstreamBody, sampleSuccessData);
+    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleRequestBody, sampleUpstreamBody, sampleSuccessData);
     assert.equal(e.userId, sampleUser.id);
   });
 
   test("event includes actorRole snapshot", () => {
-    const e = buildRunAnalysisEvent(sampleUser.id, "moderator", sampleUpstreamBody, sampleSuccessData);
+    const e = buildRunAnalysisEvent(sampleUser.id, "moderator", sampleRequestBody, sampleUpstreamBody, sampleSuccessData);
     assert.equal(e.actorRole, "moderator");
     assert.equal("role" in e.details, false);
   });
 
-  test("event details contain address and network", () => {
-    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleUpstreamBody, sampleSuccessData);
+  test("event details contain address from request body and network from upstream body", () => {
+    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleRequestBody, sampleUpstreamBody, sampleSuccessData);
     assert.equal(e.details.address, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT");
     assert.equal(e.details.network, "BTC");
   });
 
   test("event details contain risk_level from upstream response", () => {
-    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleUpstreamBody, sampleSuccessData);
+    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleRequestBody, sampleUpstreamBody, sampleSuccessData);
     assert.equal(e.details.risk_level, "MEDIUM");
   });
 
   test("event details contain request_id and result_id", () => {
-    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleUpstreamBody, sampleSuccessData);
+    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleRequestBody, sampleUpstreamBody, sampleSuccessData);
     assert.equal(e.details.request_id, "req-uuid-1");
     assert.equal(e.details.result_id, "res-uuid-1");
   });
 
   test("missing risk_level in upstream data falls back to null", () => {
     const dataNoLevel = { request_id: "req-2", result_id: "res-2" };
-    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleUpstreamBody, dataNoLevel);
+    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleRequestBody, sampleUpstreamBody, dataNoLevel);
     assert.equal(e.details.risk_level, null);
   });
 
   test("missing result_id in upstream data falls back to null", () => {
     const dataNoResult = { request_id: "req-3", risk_level: "LOW" };
-    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleUpstreamBody, dataNoResult);
+    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleRequestBody, sampleUpstreamBody, dataNoResult);
     assert.equal(e.details.result_id, null);
   });
 
   test("details do not contain sensitive fields", () => {
-    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleUpstreamBody, sampleSuccessData);
+    const e = buildRunAnalysisEvent(sampleUser.id, sampleUser.role, sampleRequestBody, sampleUpstreamBody, sampleSuccessData);
     assert.equal("password" in e.details, false);
     assert.equal("password_hash" in e.details, false);
     assert.equal("token" in e.details, false);
@@ -131,7 +132,7 @@ describe("RUN_ANALYSIS audit event shape", () => {
 
   test("all three roles emit the same event action", () => {
     for (const role of ["user", "moderator", "admin"]) {
-      const e = buildRunAnalysisEvent(sampleUser.id, role, sampleUpstreamBody, sampleSuccessData);
+      const e = buildRunAnalysisEvent(sampleUser.id, role, sampleRequestBody, sampleUpstreamBody, sampleSuccessData);
       assert.equal(e.action, "RUN_ANALYSIS");
       assert.equal(e.actorRole, role);
       assert.equal("role" in e.details, false);

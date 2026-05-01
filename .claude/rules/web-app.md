@@ -40,7 +40,6 @@
 ## NOT Implemented ❌
 - [ ] Password reset
 - [ ] Database-backed sessions / immediate global session revocation
-- [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
 - [ ] Add padding to "Sign In" button
 

@@ -209,7 +209,7 @@ export async function POST(req: NextRequest) {
       entity: "analysis",
       entityId: data.request_id,
       details: {
-        address: upstreamBody.address,
+        address: bodyRecord.address,
         network: upstreamBody.network,
         risk_level: data.risk_level ?? null,
         request_id: data.request_id,
