@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: web-app-config
+  namespace: risk-score-app
+data:
+  NODE_ENV: "production"
+  PORT: "3000"
+  ANALYTICS_SERVICE_URL: "http://analytics-service:8000"
+  # Development/port-forward URL. For ingress or a public staging URL,
+  # replace this and update the GitHub OAuth callback to match.
+  NEXTAUTH_URL: "http://localhost:3000"

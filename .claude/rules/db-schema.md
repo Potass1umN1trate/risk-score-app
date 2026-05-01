@@ -5,6 +5,12 @@
 > Connection: `postgresql://riskapp:riskapp_secret@postgres:5432/riskscoredb`
 > K8s service: `postgres:5432` (ClusterIP, namespace risk-score-app)
 
+Migration files for existing PostgreSQL PVCs:
+- `k8s/postgres/migrations/20260429_network_analysis_limits.sql` — idempotently adds network analysis limit columns and constraints to `networks`.
+- `k8s/postgres/migrations/20260501_audit_logs_actor_role.sql` — idempotently adds `audit_logs.actor_role`, its constraint, and index.
+
+Fresh empty PVCs receive the current schema from `k8s/postgres/initdb-configmap.yaml`; already-initialized PVCs do not rerun initdb and must receive migrations explicitly.
+
 ---
 
 ## Address Uniqueness Rule
