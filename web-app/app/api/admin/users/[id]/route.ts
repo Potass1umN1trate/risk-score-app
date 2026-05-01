@@ -99,6 +99,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       void logAuditEvent({
         userId: auth.user.id,
         action: "USER_ROLE_CHANGED",
+        actorRole: auth.user.role,
         entity: "user",
         entityId: id,
         details: { old_role: target.role, new_role: newRole },
@@ -113,6 +114,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
       void logAuditEvent({
         userId: auth.user.id,
         action: patch.isBlocked ? "USER_BLOCKED" : "USER_UNBLOCKED",
+        actorRole: auth.user.role,
         entity: "user",
         entityId: id,
         details: { email: target.email },
@@ -163,6 +165,7 @@ export async function DELETE(_req: NextRequest, { params }: Params) {
     void logAuditEvent({
       userId: auth.user.id,
       action: "USER_DELETED",
+      actorRole: auth.user.role,
       entity: "user",
       entityId: id,
       details: { email: target.email, role: target.role },

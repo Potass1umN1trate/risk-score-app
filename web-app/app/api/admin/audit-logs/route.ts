@@ -3,6 +3,7 @@ import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { authorizeFreshUser } from "@/lib/authz";
 import { getAuditLogs, type AuditLogFilters } from "@/lib/db";
+import { isRole } from "@/lib/rbac";
 
 export const runtime = "nodejs";
 
@@ -48,7 +49,12 @@ export async function GET(req: NextRequest) {
   if (action) filters.action = action;
   if (userId) filters.userId = userId;
   if (email) filters.email = email;
-  if (role) filters.role = role;
+  if (role) {
+    if (!isRole(role)) {
+      return NextResponse.json({ error: "Invalid role filter" }, { status: 400 });
+    }
+    filters.role = role;
+  }
   if (entity) filters.entity = entity;
   if (dateFrom) filters.dateFrom = dateFrom;
   if (dateTo) filters.dateTo = dateTo;

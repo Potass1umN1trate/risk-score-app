@@ -141,10 +141,10 @@ export async function POST(req: NextRequest) {
     void logAuditEvent({
       userId: authz.user.id,
       action: "FLAGGED_ADDRESS_IMPORT",
+      actorRole: authz.user.role,
       entity: "flagged_address",
       entityId: null,
       details: {
-        role: authz.user.role,
         inserted: result.inserted,
         skipped: result.skipped,
         error_count: result.errors.length,

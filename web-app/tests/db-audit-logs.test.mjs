@@ -51,11 +51,11 @@ after(async () => {
 // the INSERT/SELECT logic in raw SQL — this tests the schema, not the TS helper directly.
 // The TS helper tests (unit) are in api-admin-audit-logs-logic.test.mjs.
 
-async function insertAuditLog({ id, userId, action, entity = null, entityId = null, details = null }) {
+async function insertAuditLog({ id, userId, actorRole = null, action, entity = null, entityId = null, details = null }) {
   await pool.query(
-    `INSERT INTO audit_logs (id, user_id, action, entity, entity_id, details_json)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
-    [id, userId, action, entity, entityId, details ? JSON.stringify(details) : null]
+    `INSERT INTO audit_logs (id, user_id, actor_role, action, entity, entity_id, details_json)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [id, userId, actorRole, action, entity, entityId, details ? JSON.stringify(details) : null]
   );
 }
 
@@ -66,7 +66,7 @@ async function selectAuditLogs({ action, userId, email, role, entity, dateFrom, 
   if (action)   { params.push(action);         conditions.push(`al.action = $${params.length}`); }
   if (userId)   { params.push(userId);          conditions.push(`al.user_id = $${params.length}`); }
   if (email)    { params.push(`%${email}%`);    conditions.push(`u.email ILIKE $${params.length}`); }
-  if (role)     { params.push(role);            conditions.push(`al.details_json->>'role' = $${params.length}`); }
+  if (role)     { params.push(role);            conditions.push(`al.actor_role = $${params.length}`); }
   if (entity)   { params.push(entity);          conditions.push(`al.entity = $${params.length}`); }
   if (dateFrom) { params.push(dateFrom);        conditions.push(`al.created_at >= $${params.length}`); }
   if (dateTo)   { params.push(dateTo);          conditions.push(`al.created_at < $${params.length}`); }
@@ -99,6 +99,7 @@ describe("logAuditEvent contract (raw SQL)", () => {
     await insertAuditLog({
       id,
       userId: testUserId,
+      actorRole: "admin",
       action: "USER_CREATED",
       entity: "user",
       entityId: randomUUID(),
@@ -111,6 +112,7 @@ describe("logAuditEvent contract (raw SQL)", () => {
     assert.equal(row.action, "USER_CREATED");
     assert.equal(row.entity, "user");
     assert.equal(row.user_email, testUserEmail);
+    assert.equal(row.actor_role, "admin");
     assert.ok(row.details_json !== null);
     assert.equal(row.details_json.email, "new@example.com");
     assert.equal(row.details_json.role, "user");
@@ -309,7 +311,7 @@ describe("logAuditEvent error resilience", () => {
   });
 
   test("details_json never contains password or secret fields", () => {
-    const safeDetails = { email: "u@example.com", role: "user" };
+    const safeDetails = { email: "u@example.com" };
     assert.equal("password" in safeDetails, false);
     assert.equal("password_hash" in safeDetails, false);
     assert.equal("token" in safeDetails, false);
@@ -326,10 +328,11 @@ describe("getAuditLogs — email filter (raw SQL)", () => {
     await insertAuditLog({
       id: emailLogId,
       userId: testUserId,
+      actorRole: "user",
       action: "RUN_ANALYSIS",
       entity: "analysis",
       entityId: randomUUID(),
-      details: { role: "user", address: "1test", network: "BTC", risk_level: "LOW" },
+      details: { address: "1test", network: "BTC", risk_level: "LOW" },
     });
   });
 
@@ -356,40 +359,64 @@ describe("getAuditLogs — email filter (raw SQL)", () => {
   });
 });
 
-describe("getAuditLogs — role filter via details_json (raw SQL)", () => {
-  let roleLogId;
+describe("getAuditLogs — role filter via actor_role (raw SQL)", () => {
+  let roleLogId, legacyRoleLogId;
 
   before(async () => {
     const { randomUUID } = await import("crypto");
     roleLogId = randomUUID();
+    legacyRoleLogId = randomUUID();
     await insertAuditLog({
       id: roleLogId,
       userId: testUserId,
+      actorRole: "moderator",
       action: "FLAGGED_ADDRESS_CREATED",
       entity: "flagged_address",
       entityId: randomUUID(),
-      details: { role: "moderator", network_code: "BTC", address: "1testaddr" },
+      details: { network_code: "BTC", address: "1testaddr" },
+    });
+    await insertAuditLog({
+      id: legacyRoleLogId,
+      userId: testUserId,
+      actorRole: null,
+      action: "FLAGGED_ADDRESS_UPDATED",
+      entity: "flagged_address",
+      entityId: randomUUID(),
+      details: { role: "moderator", changes: { comment: "legacy" } },
     });
   });
 
   after(async () => {
-    await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [roleLogId]);
+    await pool.query(`DELETE FROM audit_logs WHERE id = ANY($1)`, [[roleLogId, legacyRoleLogId]]);
   });
 
-  test("role filter matches events with matching role snapshot in details_json", async () => {
+  test("role filter matches events with matching actor_role", async () => {
     const rows = await selectAuditLogs({ role: "moderator", userId: testUserId });
     const found = rows.find((r) => r.id === roleLogId);
-    assert.ok(found, "Should find the row with role=moderator in details_json");
-    assert.equal(found.details_json.role, "moderator");
+    assert.ok(found, "Should find the row with actor_role=moderator");
+    assert.equal(found.actor_role, "moderator");
   });
 
-  test("role filter does not match events with different role", async () => {
+  test("role filter does not match events with different actor_role", async () => {
     const rows = await selectAuditLogs({ role: "admin", userId: testUserId });
     const found = rows.find((r) => r.id === roleLogId);
     assert.equal(found, undefined, "Should not find the moderator-role row when filtering for admin");
   });
 
-  test("role filter does not match events without role in details_json", async () => {
+  test("role filter does not match legacy details_json.role when actor_role is null", async () => {
+    const rows = await selectAuditLogs({ role: "moderator", userId: testUserId });
+    const found = rows.find((r) => r.id === legacyRoleLogId);
+    assert.equal(found, undefined, "Legacy details_json.role must not satisfy actor-role filter");
+  });
+
+  test("historical row with null actor_role is returned safely without role filter", async () => {
+    const rows = await selectAuditLogs({ userId: testUserId });
+    const found = rows.find((r) => r.id === legacyRoleLogId);
+    assert.ok(found, "Historical row should still be retrievable");
+    assert.equal(found.actor_role, null);
+  });
+
+  test("role filter does not match events without actor_role", async () => {
     const { randomUUID } = await import("crypto");
     const noRoleId = randomUUID();
     await insertAuditLog({
@@ -400,7 +427,7 @@ describe("getAuditLogs — role filter via details_json (raw SQL)", () => {
     });
     const rows = await selectAuditLogs({ role: "user", userId: testUserId });
     const found = rows.find((r) => r.id === noRoleId);
-    assert.equal(found, undefined, "Events without role in details_json should not match role filter");
+    assert.equal(found, undefined, "Events without actor_role should not match role filter");
     await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [noRoleId]);
   });
 });
@@ -465,10 +492,11 @@ describe("Auth audit events — LOGIN_SUCCESS row contract", () => {
     await insertAuditLog({
       id: loginSuccessId,
       userId: testUserId,
+      actorRole: "user",
       action: "LOGIN_SUCCESS",
       entity: "user",
       entityId: testUserId,
-      details: { email: testUserEmail, role: "user" },
+      details: { email: testUserEmail },
     });
   });
 
@@ -484,15 +512,15 @@ describe("Auth audit events — LOGIN_SUCCESS row contract", () => {
     assert.equal(found.entity, "user");
   });
 
-  test("LOGIN_SUCCESS details_json contains email and role", async () => {
+  test("LOGIN_SUCCESS details_json contains email and actor_role stores role", async () => {
     const rows = await selectAuditLogs({ action: "LOGIN_SUCCESS", userId: testUserId });
     const found = rows.find((r) => r.id === loginSuccessId);
     assert.ok(found);
     assert.equal(found.details_json.email, testUserEmail);
-    assert.equal(found.details_json.role, "user");
+    assert.equal(found.actor_role, "user");
   });
 
-  test("LOGIN_SUCCESS is filterable by role via details_json", async () => {
+  test("LOGIN_SUCCESS is filterable by actor_role", async () => {
     const rows = await selectAuditLogs({ role: "user", userId: testUserId });
     const found = rows.find((r) => r.id === loginSuccessId);
     assert.ok(found, "LOGIN_SUCCESS should be found when filtering by role=user");
@@ -528,26 +556,29 @@ describe("Auth audit events — LOGIN_FAILURE row contract", () => {
     await insertAuditLog({
       id: failureWrongPwId,
       userId: testUserId,
+      actorRole: "user",
       action: "LOGIN_FAILURE",
       entity: "user",
       entityId: testUserId,
-      details: { email: testUserEmail, reason: "wrong_password", role: "user" },
+      details: { email: testUserEmail, reason: "wrong_password" },
     });
     await insertAuditLog({
       id: failureBlockedId,
       userId: testUserId,
+      actorRole: "user",
       action: "LOGIN_FAILURE",
       entity: "user",
       entityId: testUserId,
-      details: { email: testUserEmail, reason: "blocked", role: "user" },
+      details: { email: testUserEmail, reason: "blocked" },
     });
     await insertAuditLog({
       id: failureMissingHashId,
       userId: testUserId,
+      actorRole: "user",
       action: "LOGIN_FAILURE",
       entity: "user",
       entityId: testUserId,
-      details: { email: testUserEmail, reason: "missing_hash", role: "user" },
+      details: { email: testUserEmail, reason: "missing_hash" },
     });
     // Unknown user (no DB row) — user_id must be NULL to satisfy FK.
     await insertAuditLog({
@@ -556,7 +587,7 @@ describe("Auth audit events — LOGIN_FAILURE row contract", () => {
       action: "LOGIN_FAILURE",
       entity: "user",
       entityId: null,
-      details: { email: "unknown@example.com", reason: "missing_hash", role: null },
+      details: { email: "unknown@example.com", reason: "missing_hash" },
     });
   });
 
@@ -598,11 +629,12 @@ describe("Auth audit events — LOGIN_FAILURE row contract", () => {
 
   test("LOGIN_FAILURE with null userId (unknown user) is accepted by schema", async () => {
     const { rows } = await pool.query(
-      `SELECT id, user_id, details_json FROM audit_logs WHERE id = $1`,
+      `SELECT id, user_id, actor_role, details_json FROM audit_logs WHERE id = $1`,
       [failureUnknownUserId]
     );
     assert.ok(rows[0], "Row should exist");
     assert.equal(rows[0].user_id, null, "user_id must be null for unknown user");
+    assert.equal(rows[0].actor_role, null, "actor_role must be null for unknown user");
     assert.equal(rows[0].details_json.reason, "missing_hash");
   });
 
@@ -624,10 +656,11 @@ describe("Auth audit events — OAUTH_LOGIN_SUCCESS row contract", () => {
     await insertAuditLog({
       id: oauthLogId,
       userId: testUserId,
+      actorRole: "user",
       action: "OAUTH_LOGIN_SUCCESS",
       entity: "user",
       entityId: testUserId,
-      details: { email: testUserEmail, role: "user", provider: "github" },
+      details: { email: testUserEmail, provider: "github" },
     });
   });
 
@@ -642,16 +675,16 @@ describe("Auth audit events — OAUTH_LOGIN_SUCCESS row contract", () => {
     assert.equal(found.action, "OAUTH_LOGIN_SUCCESS");
   });
 
-  test("OAUTH_LOGIN_SUCCESS details_json contains email, role, and provider", async () => {
+  test("OAUTH_LOGIN_SUCCESS details_json contains email/provider and actor_role stores role", async () => {
     const rows = await selectAuditLogs({ action: "OAUTH_LOGIN_SUCCESS", userId: testUserId });
     const found = rows.find((r) => r.id === oauthLogId);
     assert.ok(found);
     assert.equal(found.details_json.email, testUserEmail);
-    assert.equal(found.details_json.role, "user");
+    assert.equal(found.actor_role, "user");
     assert.equal(found.details_json.provider, "github");
   });
 
-  test("OAUTH_LOGIN_SUCCESS is filterable by role via details_json", async () => {
+  test("OAUTH_LOGIN_SUCCESS is filterable by actor_role", async () => {
     const rows = await selectAuditLogs({ role: "user", userId: testUserId });
     const found = rows.find((r) => r.id === oauthLogId);
     assert.ok(found, "OAUTH_LOGIN_SUCCESS should be found when filtering by role=user");

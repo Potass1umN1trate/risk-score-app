@@ -239,6 +239,7 @@ describe("Response shape", () => {
     id: "log-uuid",
     user_id: "admin-uuid",
     user_email: "admin@example.com",
+    actor_role: "admin",
     action: "USER_CREATED",
     entity: "user",
     entity_id: "new-user-uuid",
@@ -259,6 +260,7 @@ describe("Response shape", () => {
     assert.ok(typeof item.id === "string");
     assert.ok(item.user_id === null || typeof item.user_id === "string");
     assert.ok(item.user_email === null || typeof item.user_email === "string");
+    assert.ok(item.actor_role === null || ["user", "moderator", "admin"].includes(item.actor_role));
     assert.ok(typeof item.action === "string");
     assert.ok(item.entity === null || typeof item.entity === "string");
     assert.ok(item.entity_id === null || typeof item.entity_id === "string");

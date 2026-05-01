@@ -245,6 +245,7 @@ data:
     CREATE TABLE IF NOT EXISTS audit_logs (
       id          CHAR(36)     PRIMARY KEY,
       user_id     CHAR(36)     REFERENCES users(id) ON DELETE SET NULL,
+      actor_role  VARCHAR(16)  CHECK (actor_role IN ('user', 'moderator', 'admin')),
       action      VARCHAR(64)  NOT NULL,   -- LOGIN, RUN_ANALYSIS, ADD_FLAGGED, …
       entity      VARCHAR(64),
       entity_id   CHAR(36),
@@ -256,3 +257,5 @@ data:
       ON audit_logs (user_id, created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_audit_logs_action
       ON audit_logs (action, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_audit_logs_actor_role
+      ON audit_logs (actor_role, created_at DESC);

@@ -89,9 +89,10 @@ export async function PATCH(
     void logAuditEvent({
       userId: authz.user.id,
       action: "FLAGGED_ADDRESS_UPDATED",
+      actorRole: authz.user.role,
       entity: "flagged_address",
       entityId: id,
-      details: { role: authz.user.role, changes: patch },
+      details: { changes: patch },
     });
     return NextResponse.json(updated);
   } catch (err) {
@@ -129,10 +130,10 @@ export async function DELETE(
     void logAuditEvent({
       userId: authz.user.id,
       action: "FLAGGED_ADDRESS_DEACTIVATED",
+      actorRole: authz.user.role,
       entity: "flagged_address",
       entityId: id,
       details: {
-        role: authz.user.role,
         address: record.address,
         network_code: record.network_code,
       },

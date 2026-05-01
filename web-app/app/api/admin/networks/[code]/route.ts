@@ -179,6 +179,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     void logAuditEvent({
       userId: authz.user.id,
       action: "NETWORK_CONFIG_CHANGED",
+      actorRole: authz.user.role,
       entity: "network",
       entityId: updated.code,
       details: { code: updated.code, changes: patch },

@@ -19,10 +19,10 @@ function buildRunAnalysisEvent(userId, role, upstreamBody, data) {
   return {
     userId,
     action: "RUN_ANALYSIS",
+    actorRole: role,
     entity: "analysis",
     entityId: data.request_id,
     details: {
-      role,
       address: upstreamBody.address,
       network: upstreamBody.network,
       risk_level: data.risk_level ?? null,
@@ -86,9 +86,10 @@ describe("RUN_ANALYSIS audit event shape", () => {
     assert.equal(e.userId, sampleUser.id);
   });
 
-  test("event details contain role snapshot", () => {
+  test("event includes actorRole snapshot", () => {
     const e = buildRunAnalysisEvent(sampleUser.id, "moderator", sampleUpstreamBody, sampleSuccessData);
-    assert.equal(e.details.role, "moderator");
+    assert.equal(e.actorRole, "moderator");
+    assert.equal("role" in e.details, false);
   });
 
   test("event details contain address and network", () => {
@@ -132,7 +133,8 @@ describe("RUN_ANALYSIS audit event shape", () => {
     for (const role of ["user", "moderator", "admin"]) {
       const e = buildRunAnalysisEvent(sampleUser.id, role, sampleUpstreamBody, sampleSuccessData);
       assert.equal(e.action, "RUN_ANALYSIS");
-      assert.equal(e.details.role, role);
+      assert.equal(e.actorRole, role);
+      assert.equal("role" in e.details, false);
     }
   });
 });
@@ -167,9 +169,10 @@ describe("USER_REGISTERED audit event shape", () => {
     return {
       userId: newUserId,
       action: "USER_REGISTERED",
+      actorRole: "user",
       entity: "user",
       entityId: newUserId,
-      details: { role: "user", email },
+      details: { email },
     };
   }
 
@@ -188,7 +191,8 @@ describe("USER_REGISTERED audit event shape", () => {
 
   test("role is always 'user' for registration", () => {
     const e = buildUserRegisteredEvent("new-uuid", "alice@example.com");
-    assert.equal(e.details.role, "user");
+    assert.equal(e.actorRole, "user");
+    assert.equal("role" in e.details, false);
   });
 
   test("details contain email but not password", () => {

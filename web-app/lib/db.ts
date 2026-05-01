@@ -1211,6 +1211,7 @@ export interface AuditLogItem {
   id: string;
   user_id: string | null;
   user_email: string | null;
+  actor_role: string | null;
   action: string;
   entity: string | null;
   entity_id: string | null;
@@ -1232,6 +1233,7 @@ interface AuditLogRow extends QueryResultRow {
   id: string;
   user_id: string | null;
   user_email: string | null;
+  actor_role: string | null;
   action: string;
   entity: string | null;
   entity_id: string | null;
@@ -1242,6 +1244,7 @@ interface AuditLogRow extends QueryResultRow {
 export async function logAuditEvent(event: {
   userId: string | null;
   action: string;
+  actorRole?: "user" | "moderator" | "admin" | null;
   entity?: string | null;
   entityId?: string | null;
   details?: Record<string, unknown> | null;
@@ -1249,11 +1252,12 @@ export async function logAuditEvent(event: {
   try {
     const { randomUUID } = await import("crypto");
     await query(
-      `INSERT INTO audit_logs (id, user_id, action, entity, entity_id, details_json)
-       VALUES ($1, $2, $3, $4, $5, $6)`,
+      `INSERT INTO audit_logs (id, user_id, actor_role, action, entity, entity_id, details_json)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         randomUUID(),
         event.userId,
+        event.actorRole ?? null,
         event.action,
         event.entity ?? null,
         event.entityId ?? null,
@@ -1287,7 +1291,7 @@ export async function getAuditLogs(
   }
   if (filters.role) {
     params.push(filters.role);
-    conditions.push(`al.details_json->>'role' = $${params.length}`);
+    conditions.push(`al.actor_role = $${params.length}`);
   }
   if (filters.entity) {
     params.push(filters.entity);
@@ -1315,6 +1319,7 @@ export async function getAuditLogs(
          al.id,
          al.user_id,
          u.email   AS user_email,
+         al.actor_role,
          al.action,
          al.entity,
          al.entity_id,
@@ -1341,6 +1346,7 @@ export async function getAuditLogs(
       id: row.id,
       user_id: row.user_id,
       user_email: row.user_email,
+      actor_role: row.actor_role,
       action: row.action,
       entity: row.entity,
       entity_id: row.entity_id,

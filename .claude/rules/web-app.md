@@ -34,8 +34,8 @@
 - [x] Middleware and RBAC updated — `/history/:path*` added to middleware matcher; `requiredRoleForPath` returns `"user"` for `/history` and `/history/*`; unauthenticated page requests redirect to `/login`; unauthenticated API requests return JSON 401
 - [x] Dashboard and nav updated — "Analysis history" card added to `/dashboard`; "History" link added to global nav for authenticated users
 
-- [x] Audit logging — `logAuditEvent()` in `lib/db.ts` writes to `audit_logs` with best-effort fire-and-forget (errors swallowed, never thrown into the main flow); `userId` accepts `string | null`; all events include `role` snapshot in `details_json`; no passwords, hashes, tokens, or secrets are ever written to `details_json`; implemented events: `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_BLOCKED`, `USER_UNBLOCKED`, `USER_DELETED`, `NETWORK_CONFIG_CHANGED` (admin actions); `USER_REGISTERED` (self-registration, userId = new user's id); `RUN_ANALYSIS` (all roles, on successful upstream 200); `FLAGGED_ADDRESS_CREATED`, `FLAGGED_ADDRESS_UPDATED`, `FLAGGED_ADDRESS_DEACTIVATED`, `FLAGGED_ADDRESS_IMPORT`, `FLAGGED_ADDRESS_EXPORT` (moderator/admin flagged-address flows); `LOGIN_SUCCESS` (credentials login, `details: {email, role}`); `LOGIN_FAILURE` (credentials login denied, `details: {email, reason, role}` — reason is `wrong_password` | `blocked` | `missing_hash`; userId is null when user not found); `OAUTH_LOGIN_SUCCESS` (GitHub OAuth login, `details: {email, role, provider}`); auth-flow logging is in `web-app/auth.ts` `authorize()` and `signIn` callback; all three auth events are fire-and-forget; historical events before Phase 3 have no login audit rows
-- [x] Audit log viewer (admin-only) — `GET /api/admin/audit-logs` supports filters: `action` (exact), `userId` (exact), `email` (ILIKE substring on joined users.email), `role` (matches `details_json->>'role'` snapshot — only matches events logged after Phase 2), `entity` (exact), `dateFrom` (inclusive), `dateTo` (exclusive; date-only `YYYY-MM-DD` strings are normalized to end-of-day `T23:59:59.999Z` in the route handler); `page` + `limit` (default 20, max 100); `/admin/audit-logs` page has a filter bar with email search, role select, event-type select, dateFrom/dateTo date inputs; viewer remains admin-only; filter changes reset to page 1; empty state updated to say "user and admin actions" instead of "admin actions only"
+- [x] Audit logging — `logAuditEvent()` in `lib/db.ts` writes to `audit_logs` with best-effort fire-and-forget (errors swallowed, never thrown into the main flow); `userId` accepts `string | null`; `actor_role` stores the nullable role snapshot of the actor (`user`, `moderator`, `admin`) at event creation; historical/system/unknown-actor events may have `actor_role=NULL`; no passwords, hashes, tokens, or secrets are ever written to `details_json`; new events where role is purely actor identity do not store `role` in `details_json`; target-role details remain explicit as `old_role`/`new_role` or target metadata where needed; implemented events: `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_BLOCKED`, `USER_UNBLOCKED`, `USER_DELETED`, `NETWORK_CONFIG_CHANGED` (admin actions); `USER_REGISTERED` (self-registration, userId = new user's id); `RUN_ANALYSIS` (all roles, on successful upstream 200); `FLAGGED_ADDRESS_CREATED`, `FLAGGED_ADDRESS_UPDATED`, `FLAGGED_ADDRESS_DEACTIVATED`, `FLAGGED_ADDRESS_IMPORT`, `FLAGGED_ADDRESS_EXPORT` (moderator/admin flagged-address flows); `LOGIN_SUCCESS`, `LOGIN_FAILURE` (reason is `wrong_password` | `blocked` | `missing_hash`; userId and actor_role are null when user not found), and `OAUTH_LOGIN_SUCCESS`; auth-flow logging is in `web-app/auth.ts` `authorize()` and `signIn` callback; all three auth events are fire-and-forget; historical events before Phase 3 have no login audit rows
+- [x] Audit log viewer (admin-only) — `GET /api/admin/audit-logs` response items include `actor_role`; supported filters: `action` (exact), `userId` (exact), `email` (ILIKE substring on joined users.email), `role` (matches `audit_logs.actor_role`; `details_json.role` is not used for actor-role filtering), `entity` (exact), `dateFrom` (inclusive), `dateTo` (exclusive; date-only `YYYY-MM-DD` strings are normalized to end-of-day `T23:59:59.999Z` in the route handler); old rows with `actor_role=NULL` show a dash and do not match role filters; `page` + `limit` (default 20, max 100); `/admin/audit-logs` page has a filter bar with email search, role select, event-type select, dateFrom/dateTo date inputs plus a dedicated Role column; Details rendering hides a legacy `role` key but keeps `old_role`/`new_role`; viewer remains admin-only; filter changes reset to page 1; empty state updated to say "user and admin actions" instead of "admin actions only"
 
 ## NOT Implemented ❌
 - [ ] Password reset
@@ -231,11 +231,11 @@ Viewer: admin only.
 Writers: all roles (see implemented events below).
 
 Implemented events:
-- `LOGIN_SUCCESS` — all roles (successful credentials login; `details: {email, role}`)
-- `LOGIN_FAILURE` — all roles (failed credentials login; `details: {email, reason, role}` — reason: `wrong_password` | `blocked` | `missing_hash`; userId null when user not found)
-- `OAUTH_LOGIN_SUCCESS` — all roles (successful GitHub OAuth login; `details: {email, role, provider}`)
-- `USER_REGISTERED` — all users (self-registration; `details: {email, role: "user"}`)
-- `RUN_ANALYSIS` — all roles (successful analysis; `details: {address, network, risk_level, request_id, result_id, role}`)
+- `LOGIN_SUCCESS` — all roles (successful credentials login; `actor_role` stores the login user's role; `details: {email}`)
+- `LOGIN_FAILURE` — all roles when the user is known, unknown otherwise (failed credentials login; `actor_role` stores the known user's role or NULL; `details: {email, reason}` — reason: `wrong_password` | `blocked` | `missing_hash`; userId null when user not found)
+- `OAUTH_LOGIN_SUCCESS` — all roles (successful GitHub OAuth login; `actor_role` stores the OAuth user's role; `details: {email, provider}`)
+- `USER_REGISTERED` — all users (self-registration; `actor_role: "user"`; `details: {email}`)
+- `RUN_ANALYSIS` — all roles (successful analysis; `actor_role` stores the submitting user's role; `details: {address, network, risk_level, request_id, result_id}`)
 - `FLAGGED_ADDRESS_CREATED` / `FLAGGED_ADDRESS_UPDATED` / `FLAGGED_ADDRESS_DEACTIVATED` — moderator + admin
 - `FLAGGED_ADDRESS_IMPORT` / `FLAGGED_ADDRESS_EXPORT` — moderator + admin
 - `USER_CREATED` / `USER_ROLE_CHANGED` / `USER_BLOCKED` / `USER_UNBLOCKED` / `USER_DELETED` — admin
@@ -243,7 +243,8 @@ Implemented events:
 
 No events are deferred. Historical rows before Phase 3 have no login audit entries.
 
-Viewer filters: action, userId, email (substring), role (details_json snapshot), entity, dateFrom, dateTo.
+Viewer filters: action, userId, email (substring), role (`audit_logs.actor_role`), entity, dateFrom, dateTo.
+The audit viewer has a dedicated Role column for `actor_role`; `details_json.role` is not used for actor-role filtering or display. `USER_ROLE_CHANGED` keeps target-role details in `old_role` and `new_role`.
 Raw SQL errors or internal stack traces must never be exposed through API responses.
 
 ### System Settings

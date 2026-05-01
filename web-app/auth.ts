@@ -47,9 +47,10 @@ export const authOptions: NextAuthOptions = {
           void logAuditEvent({
             userId: user.id,
             action: "LOGIN_FAILURE",
+            actorRole: user.role,
             entity: "user",
             entityId: user.id,
-            details: { email, reason: "blocked", role: user.role },
+            details: { email, reason: "blocked" },
           });
           return null;
         }
@@ -59,9 +60,10 @@ export const authOptions: NextAuthOptions = {
           void logAuditEvent({
             userId: user?.id ?? null,
             action: "LOGIN_FAILURE",
+            actorRole: user?.role ?? null,
             entity: "user",
             entityId: user?.id ?? null,
-            details: { email, reason: "missing_hash", role: user?.role ?? null },
+            details: { email, reason: "missing_hash" },
           });
           return null;
         }
@@ -77,9 +79,10 @@ export const authOptions: NextAuthOptions = {
           void logAuditEvent({
             userId: user.id,
             action: "LOGIN_FAILURE",
+            actorRole: user.role,
             entity: "user",
             entityId: user.id,
-            details: { email, reason: "wrong_password", role: user.role },
+            details: { email, reason: "wrong_password" },
           });
           return null;
         }
@@ -87,9 +90,10 @@ export const authOptions: NextAuthOptions = {
         void logAuditEvent({
           userId: user.id,
           action: "LOGIN_SUCCESS",
+          actorRole: user.role,
           entity: "user",
           entityId: user.id,
-          details: { email: user.email, role: user.role },
+          details: { email: user.email },
         });
 
         return {
@@ -117,9 +121,10 @@ export const authOptions: NextAuthOptions = {
           void logAuditEvent({
             userId: user.id,
             action: "OAUTH_LOGIN_SUCCESS",
+            actorRole: user.role,
             entity: "user",
             entityId: user.id,
-            details: { email: user.email, role: user.role, provider: account.provider },
+            details: { email: user.email, provider: account.provider },
           });
           return true;
         } catch {

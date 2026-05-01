@@ -205,10 +205,10 @@ export async function POST(req: NextRequest) {
     void logAuditEvent({
       userId: authz.user.id,
       action: "RUN_ANALYSIS",
+      actorRole: authz.user.role,
       entity: "analysis",
       entityId: data.request_id,
       details: {
-        role: authz.user.role,
         address: upstreamBody.address,
         network: upstreamBody.network,
         risk_level: data.risk_level ?? null,

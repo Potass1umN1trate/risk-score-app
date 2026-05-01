@@ -55,9 +55,10 @@ export async function GET(req: NextRequest) {
     void logAuditEvent({
       userId: authz.user.id,
       action: "FLAGGED_ADDRESS_EXPORT",
+      actorRole: authz.user.role,
       entity: "flagged_address",
       entityId: null,
-      details: { role: authz.user.role, format, count: items.length },
+      details: { format, count: items.length },
     });
 
     if (format === "csv") {

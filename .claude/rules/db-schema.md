@@ -145,6 +145,7 @@ Multiple raw blockchain transactions between the same address pair are collapsed
 |---|---|---|
 | id | CHAR(36) | PK (UUID) |
 | user_id | CHAR(36) | FK → users.id |
+| actor_role | VARCHAR(16) | nullable actor role snapshot at event creation; allowed values: `user`, `moderator`, `admin`; NULL for historical/system/unknown-actor events |
 | action | VARCHAR(64) | LOGIN, RUN_ANALYSIS, ADD_FLAGGED, etc. |
 | entity | VARCHAR(64) | nullable |
 | entity_id | CHAR(36) | nullable |

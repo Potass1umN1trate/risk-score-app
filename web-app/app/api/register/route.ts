@@ -56,9 +56,10 @@ export async function POST(req: NextRequest) {
   void logAuditEvent({
     userId: user.id,
     action: "USER_REGISTERED",
+    actorRole: "user",
     entity: "user",
     entityId: user.id,
-    details: { role: "user", email: user.email },
+    details: { email: user.email },
   });
 
   return NextResponse.json({ id: user.id, email: user.email }, { status: 201 });

@@ -362,10 +362,10 @@ function buildFlaggedCreatedEvent(userId, role, created) {
   return {
     userId,
     action: "FLAGGED_ADDRESS_CREATED",
+    actorRole: role,
     entity: "flagged_address",
     entityId: created.id,
     details: {
-      role,
       network_code: created.network_code,
       address: created.address,
       risk_category_code: created.risk_category_code,
@@ -377,9 +377,10 @@ function buildFlaggedUpdatedEvent(userId, role, id, patch) {
   return {
     userId,
     action: "FLAGGED_ADDRESS_UPDATED",
+    actorRole: role,
     entity: "flagged_address",
     entityId: id,
-    details: { role, changes: patch },
+    details: { changes: patch },
   };
 }
 
@@ -387,9 +388,10 @@ function buildFlaggedDeactivatedEvent(userId, role, id, address, network_code) {
   return {
     userId,
     action: "FLAGGED_ADDRESS_DEACTIVATED",
+    actorRole: role,
     entity: "flagged_address",
     entityId: id,
-    details: { role, address, network_code },
+    details: { address, network_code },
   };
 }
 
@@ -397,9 +399,10 @@ function buildFlaggedImportEvent(userId, role, inserted, skipped, error_count) {
   return {
     userId,
     action: "FLAGGED_ADDRESS_IMPORT",
+    actorRole: role,
     entity: "flagged_address",
     entityId: null,
-    details: { role, inserted, skipped, error_count },
+    details: { inserted, skipped, error_count },
   };
 }
 
@@ -407,9 +410,10 @@ function buildFlaggedExportEvent(userId, role, format, count) {
   return {
     userId,
     action: "FLAGGED_ADDRESS_EXPORT",
+    actorRole: role,
     entity: "flagged_address",
     entityId: null,
-    details: { role, format, count },
+    details: { format, count },
   };
 }
 
@@ -424,7 +428,8 @@ describe("Flagged-address audit event shapes", () => {
     assert.equal(e.action, "FLAGGED_ADDRESS_CREATED");
     assert.equal(e.entity, "flagged_address");
     assert.equal(e.entityId, "fa-uuid");
-    assert.equal(e.details.role, "moderator");
+    assert.equal(e.actorRole, "moderator");
+    assert.equal("role" in e.details, false);
     assert.equal(e.details.network_code, "BTC");
     assert.equal(e.details.address, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT");
     assert.equal(e.details.risk_category_code, "scam");
@@ -453,12 +458,15 @@ describe("Flagged-address audit event shapes", () => {
     assert.equal(e.action, "FLAGGED_ADDRESS_DEACTIVATED");
     assert.equal(e.details.address, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT");
     assert.equal(e.details.network_code, "BTC");
-    assert.equal(e.details.role, "moderator");
+    assert.equal(e.actorRole, "moderator");
+    assert.equal("role" in e.details, false);
   });
 
   test("FLAGGED_ADDRESS_IMPORT event captures inserted, skipped, error_count", () => {
     const e = buildFlaggedImportEvent("admin-1", "admin", 10, 2, 1);
     assert.equal(e.action, "FLAGGED_ADDRESS_IMPORT");
+    assert.equal(e.actorRole, "admin");
+    assert.equal("role" in e.details, false);
     assert.equal(e.details.inserted, 10);
     assert.equal(e.details.skipped, 2);
     assert.equal(e.details.error_count, 1);
@@ -468,6 +476,8 @@ describe("Flagged-address audit event shapes", () => {
   test("FLAGGED_ADDRESS_EXPORT event captures format and count", () => {
     const e = buildFlaggedExportEvent("admin-1", "admin", "csv", 50);
     assert.equal(e.action, "FLAGGED_ADDRESS_EXPORT");
+    assert.equal(e.actorRole, "admin");
+    assert.equal("role" in e.details, false);
     assert.equal(e.details.format, "csv");
     assert.equal(e.details.count, 50);
     assert.equal(e.entityId, null);

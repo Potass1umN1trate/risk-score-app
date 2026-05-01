@@ -83,10 +83,10 @@ export async function POST(req: NextRequest) {
     void logAuditEvent({
       userId: authz.user.id,
       action: "FLAGGED_ADDRESS_CREATED",
+      actorRole: authz.user.role,
       entity: "flagged_address",
       entityId: created.id,
       details: {
-        role: authz.user.role,
         network_code: created.network_code,
         address: created.address,
         risk_category_code: created.risk_category_code,

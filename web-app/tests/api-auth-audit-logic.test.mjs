@@ -26,9 +26,10 @@ async function authorize(credentials, { findUserByEmail, comparePassword, logAud
     void logAuditEvent({
       userId: user.id,
       action: "LOGIN_FAILURE",
+      actorRole: user.role,
       entity: "user",
       entityId: user.id,
-      details: { email, reason: "blocked", role: user.role },
+      details: { email, reason: "blocked" },
     });
     return null;
   }
@@ -37,9 +38,10 @@ async function authorize(credentials, { findUserByEmail, comparePassword, logAud
     void logAuditEvent({
       userId: user?.id ?? null,
       action: "LOGIN_FAILURE",
+      actorRole: user?.role ?? null,
       entity: "user",
       entityId: user?.id ?? null,
-      details: { email, reason: "missing_hash", role: user?.role ?? null },
+      details: { email, reason: "missing_hash" },
     });
     return null;
   }
@@ -55,9 +57,10 @@ async function authorize(credentials, { findUserByEmail, comparePassword, logAud
     void logAuditEvent({
       userId: user.id,
       action: "LOGIN_FAILURE",
+      actorRole: user.role,
       entity: "user",
       entityId: user.id,
-      details: { email, reason: "wrong_password", role: user.role },
+      details: { email, reason: "wrong_password" },
     });
     return null;
   }
@@ -65,9 +68,10 @@ async function authorize(credentials, { findUserByEmail, comparePassword, logAud
   void logAuditEvent({
     userId: user.id,
     action: "LOGIN_SUCCESS",
+    actorRole: user.role,
     entity: "user",
     entityId: user.id,
-    details: { email: user.email, role: user.role },
+    details: { email: user.email },
   });
 
   return { id: user.id, email: user.email, role: user.role, isBlocked: user.isBlocked };
@@ -85,9 +89,10 @@ async function signInCallback({ account, profile }, { findOrCreateOAuthUser, log
       void logAuditEvent({
         userId: user.id,
         action: "OAUTH_LOGIN_SUCCESS",
+        actorRole: user.role,
         entity: "user",
         entityId: user.id,
-        details: { email: user.email, role: user.role, provider: account.provider },
+        details: { email: user.email, provider: account.provider },
       });
       return true;
     } catch {
@@ -149,7 +154,7 @@ describe("LOGIN_SUCCESS audit event", () => {
     assert.equal(spy.captured.entityId, "specific-uuid");
   });
 
-  test("details contain email and role snapshot", async () => {
+  test("details contain email and actorRole stores role snapshot", async () => {
     const spy = makeSpy();
     await authorize(creds, {
       findUserByEmail: async () => makeUser({ role: "moderator", email: "alice@example.com" }),
@@ -158,7 +163,8 @@ describe("LOGIN_SUCCESS audit event", () => {
     });
     await new Promise((r) => setImmediate(r));
     assert.equal(spy.captured.details.email, "alice@example.com");
-    assert.equal(spy.captured.details.role, "moderator");
+    assert.equal(spy.captured.actorRole, "moderator");
+    assert.equal("role" in spy.captured.details, false);
   });
 
   test("details do not contain password or hash", async () => {
@@ -196,7 +202,8 @@ describe("LOGIN_SUCCESS audit event", () => {
       });
       await new Promise((r) => setImmediate(r));
       assert.equal(spy.captured.action, "LOGIN_SUCCESS");
-      assert.equal(spy.captured.details.role, role);
+      assert.equal(spy.captured.actorRole, role);
+      assert.equal("role" in spy.captured.details, false);
     }
   });
 });
@@ -227,7 +234,7 @@ describe("LOGIN_FAILURE audit event — wrong password", () => {
     assert.equal(spy.captured.userId, "known-uuid");
   });
 
-  test("details contain email and role snapshot on wrong password", async () => {
+  test("details contain email and actorRole stores role snapshot on wrong password", async () => {
     const spy = makeSpy();
     await authorize(creds, {
       findUserByEmail: async () => makeUser({ role: "admin" }),
@@ -236,7 +243,8 @@ describe("LOGIN_FAILURE audit event — wrong password", () => {
     });
     await new Promise((r) => setImmediate(r));
     assert.equal(spy.captured.details.email, "alice@example.com");
-    assert.equal(spy.captured.details.role, "admin");
+    assert.equal(spy.captured.actorRole, "admin");
+    assert.equal("role" in spy.captured.details, false);
   });
 
   test("authorize() returns null on wrong password", async () => {
@@ -422,7 +430,8 @@ describe("OAUTH_LOGIN_SUCCESS audit event", () => {
     );
     await new Promise((r) => setImmediate(r));
     assert.equal(spy.captured.details.email, "alice@example.com");
-    assert.equal(spy.captured.details.role, "moderator");
+    assert.equal(spy.captured.actorRole, "moderator");
+    assert.equal("role" in spy.captured.details, false);
     assert.equal(spy.captured.details.provider, "github");
   });
 
@@ -489,7 +498,8 @@ describe("OAUTH_LOGIN_SUCCESS audit event", () => {
       );
       await new Promise((r) => setImmediate(r));
       assert.equal(spy.captured.action, "OAUTH_LOGIN_SUCCESS");
-      assert.equal(spy.captured.details.role, role);
+      assert.equal(spy.captured.actorRole, role);
+      assert.equal("role" in spy.captured.details, false);
     }
   });
 

@@ -106,6 +106,7 @@ export async function POST(req: NextRequest) {
     void logAuditEvent({
       userId: auth.user.id,
       action: "USER_CREATED",
+      actorRole: auth.user.role,
       entity: "user",
       entityId: user.id,
       details: { email: user.email, role },

@@ -7,6 +7,7 @@ interface AuditLogItem {
   id: string;
   user_id: string | null;
   user_email: string | null;
+  actor_role: string | null;
   action: string;
   entity: string | null;
   entity_id: string | null;
@@ -52,6 +53,22 @@ function formatDate(iso: string): string {
 function formatTime(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleTimeString("en-GB");
+}
+
+function visibleDetailsEntries(details: Record<string, unknown> | null): Array<[string, unknown]> {
+  if (!details) return [];
+  return Object.entries(details)
+    .filter(([k]) => k !== "role");
+}
+
+function renderDetails(details: Record<string, unknown> | null): string {
+  return visibleDetailsEntries(details)
+    .map(([k, v]) => `${k}: ${String(v)}`)
+    .join(", ");
+}
+
+function detailsTitle(details: Record<string, unknown> | null): string {
+  return JSON.stringify(Object.fromEntries(visibleDetailsEntries(details)), null, 2);
 }
 
 export default function AuditLogsPage() {
@@ -248,6 +265,7 @@ export default function AuditLogsPage() {
                   <th>Date</th>
                   <th>Time</th>
                   <th>User</th>
+                  <th>Role</th>
                   <th>Action</th>
                   <th>Entity</th>
                   <th>Details</th>
@@ -264,6 +282,9 @@ export default function AuditLogsPage() {
                     </td>
                     <td style={{ fontSize: "0.85rem" }}>
                       {item.user_email ?? item.user_id ?? <span style={{ color: "var(--color-muted)" }}>—</span>}
+                    </td>
+                    <td style={{ fontSize: "0.85rem", color: item.actor_role ? "inherit" : "var(--color-muted)" }}>
+                      {item.actor_role ?? "—"}
                     </td>
                     <td>
                       <span style={{
@@ -298,11 +319,9 @@ export default function AuditLogsPage() {
                       )}
                     </td>
                     <td style={{ fontSize: "0.80rem", color: "var(--color-muted)", maxWidth: "24ch" }}>
-                      {item.details_json ? (
-                        <span title={JSON.stringify(item.details_json, null, 2)}>
-                          {Object.entries(item.details_json)
-                            .map(([k, v]) => `${k}: ${String(v)}`)
-                            .join(", ")}
+                      {item.details_json && renderDetails(item.details_json) ? (
+                        <span title={detailsTitle(item.details_json)}>
+                          {renderDetails(item.details_json)}
                         </span>
                       ) : (
                         <span>—</span>
