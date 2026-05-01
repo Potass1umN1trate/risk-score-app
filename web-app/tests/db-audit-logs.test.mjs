@@ -59,13 +59,17 @@ async function insertAuditLog({ id, userId, action, entity = null, entityId = nu
   );
 }
 
-async function selectAuditLogs({ action, userId, entity } = {}) {
+async function selectAuditLogs({ action, userId, email, role, entity, dateFrom, dateTo } = {}) {
   const conditions = [];
   const params = [];
 
-  if (action) { params.push(action); conditions.push(`al.action = $${params.length}`); }
-  if (userId) { params.push(userId); conditions.push(`al.user_id = $${params.length}`); }
-  if (entity) { params.push(entity); conditions.push(`al.entity = $${params.length}`); }
+  if (action)   { params.push(action);         conditions.push(`al.action = $${params.length}`); }
+  if (userId)   { params.push(userId);          conditions.push(`al.user_id = $${params.length}`); }
+  if (email)    { params.push(`%${email}%`);    conditions.push(`u.email ILIKE $${params.length}`); }
+  if (role)     { params.push(role);            conditions.push(`al.details_json->>'role' = $${params.length}`); }
+  if (entity)   { params.push(entity);          conditions.push(`al.entity = $${params.length}`); }
+  if (dateFrom) { params.push(dateFrom);        conditions.push(`al.created_at >= $${params.length}`); }
+  if (dateTo)   { params.push(dateTo);          conditions.push(`al.created_at < $${params.length}`); }
 
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
@@ -287,11 +291,385 @@ describe("logAuditEvent error resilience", () => {
     assert.equal(threw, true, "Raw FK violation should throw — logAuditEvent must wrap this");
   });
 
+  test("logAuditEvent accepts null userId (system/self-registration events)", async () => {
+    // audit_logs.user_id is nullable — insert with NULL user_id must succeed.
+    const { randomUUID } = await import("crypto");
+    const id = randomUUID();
+    let threw = false;
+    try {
+      await pool.query(
+        `INSERT INTO audit_logs (id, user_id, action) VALUES ($1, $2, $3)`,
+        [id, null, "USER_REGISTERED"]
+      );
+    } catch {
+      threw = true;
+    }
+    assert.equal(threw, false, "NULL user_id should be accepted by the schema");
+    await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [id]);
+  });
+
   test("details_json never contains password or secret fields", () => {
     const safeDetails = { email: "u@example.com", role: "user" };
     assert.equal("password" in safeDetails, false);
     assert.equal("password_hash" in safeDetails, false);
     assert.equal("token" in safeDetails, false);
     assert.equal("secret" in safeDetails, false);
+  });
+});
+
+describe("getAuditLogs — email filter (raw SQL)", () => {
+  let emailLogId;
+
+  before(async () => {
+    const { randomUUID } = await import("crypto");
+    emailLogId = randomUUID();
+    await insertAuditLog({
+      id: emailLogId,
+      userId: testUserId,
+      action: "RUN_ANALYSIS",
+      entity: "analysis",
+      entityId: randomUUID(),
+      details: { role: "user", address: "1test", network: "BTC", risk_level: "LOW" },
+    });
+  });
+
+  after(async () => {
+    await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [emailLogId]);
+  });
+
+  test("email ILIKE filter returns rows for matching user", async () => {
+    // testUserEmail contains a unique prefix derived from testUserId.
+    const emailFragment = testUserEmail.split("@")[0].slice(0, 8);
+    const rows = await selectAuditLogs({ email: emailFragment });
+    assert.ok(rows.length >= 1, "Should find at least one row for this user's email");
+    for (const r of rows) {
+      assert.ok(
+        r.user_email && r.user_email.toLowerCase().includes(emailFragment.toLowerCase()),
+        `email_email '${r.user_email}' should contain '${emailFragment}'`
+      );
+    }
+  });
+
+  test("email filter with non-matching value returns no rows", async () => {
+    const rows = await selectAuditLogs({ email: "no-such-email-xyz-99999" });
+    assert.equal(rows.length, 0);
+  });
+});
+
+describe("getAuditLogs — role filter via details_json (raw SQL)", () => {
+  let roleLogId;
+
+  before(async () => {
+    const { randomUUID } = await import("crypto");
+    roleLogId = randomUUID();
+    await insertAuditLog({
+      id: roleLogId,
+      userId: testUserId,
+      action: "FLAGGED_ADDRESS_CREATED",
+      entity: "flagged_address",
+      entityId: randomUUID(),
+      details: { role: "moderator", network_code: "BTC", address: "1testaddr" },
+    });
+  });
+
+  after(async () => {
+    await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [roleLogId]);
+  });
+
+  test("role filter matches events with matching role snapshot in details_json", async () => {
+    const rows = await selectAuditLogs({ role: "moderator", userId: testUserId });
+    const found = rows.find((r) => r.id === roleLogId);
+    assert.ok(found, "Should find the row with role=moderator in details_json");
+    assert.equal(found.details_json.role, "moderator");
+  });
+
+  test("role filter does not match events with different role", async () => {
+    const rows = await selectAuditLogs({ role: "admin", userId: testUserId });
+    const found = rows.find((r) => r.id === roleLogId);
+    assert.equal(found, undefined, "Should not find the moderator-role row when filtering for admin");
+  });
+
+  test("role filter does not match events without role in details_json", async () => {
+    const { randomUUID } = await import("crypto");
+    const noRoleId = randomUUID();
+    await insertAuditLog({
+      id: noRoleId,
+      userId: testUserId,
+      action: "USER_DELETED",
+      details: null,
+    });
+    const rows = await selectAuditLogs({ role: "user", userId: testUserId });
+    const found = rows.find((r) => r.id === noRoleId);
+    assert.equal(found, undefined, "Events without role in details_json should not match role filter");
+    await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [noRoleId]);
+  });
+});
+
+describe("getAuditLogs — date range filter (raw SQL)", () => {
+  let pastLogId, futureLogId;
+
+  before(async () => {
+    const { randomUUID } = await import("crypto");
+    pastLogId = randomUUID();
+    futureLogId = randomUUID();
+
+    // Insert a row with a fixed past timestamp.
+    await pool.query(
+      `INSERT INTO audit_logs (id, user_id, action, created_at) VALUES ($1, $2, $3, $4)`,
+      [pastLogId, testUserId, "USER_BLOCKED", "2020-01-15T12:00:00Z"]
+    );
+    // Insert a row with a fixed future-past timestamp (far future enough to be distinct).
+    await pool.query(
+      `INSERT INTO audit_logs (id, user_id, action, created_at) VALUES ($1, $2, $3, $4)`,
+      [futureLogId, testUserId, "USER_UNBLOCKED", "2099-06-01T12:00:00Z"]
+    );
+  });
+
+  after(async () => {
+    await pool.query(`DELETE FROM audit_logs WHERE id = ANY($1)`, [[pastLogId, futureLogId]]);
+  });
+
+  test("dateFrom filter excludes rows before the date", async () => {
+    const rows = await selectAuditLogs({ userId: testUserId, dateFrom: "2021-01-01T00:00:00Z" });
+    const pastRow = rows.find((r) => r.id === pastLogId);
+    assert.equal(pastRow, undefined, "Row from 2020 should be excluded when dateFrom is 2021");
+  });
+
+  test("dateTo filter excludes rows after the date", async () => {
+    const rows = await selectAuditLogs({ userId: testUserId, dateTo: "2050-01-01T00:00:00Z" });
+    const futureRow = rows.find((r) => r.id === futureLogId);
+    assert.equal(futureRow, undefined, "Row from 2099 should be excluded when dateTo is 2050");
+  });
+
+  test("dateFrom + dateTo together returns only rows in range", async () => {
+    const rows = await selectAuditLogs({
+      userId: testUserId,
+      dateFrom: "2019-01-01T00:00:00Z",
+      dateTo: "2021-01-01T00:00:00Z",
+    });
+    const pastRow = rows.find((r) => r.id === pastLogId);
+    const futureRow = rows.find((r) => r.id === futureLogId);
+    assert.ok(pastRow, "Row from 2020 should be in range");
+    assert.equal(futureRow, undefined, "Row from 2099 should be outside range");
+  });
+});
+
+// ─── Auth-flow audit events: LOGIN_SUCCESS, LOGIN_FAILURE, OAUTH_LOGIN_SUCCESS ─
+
+describe("Auth audit events — LOGIN_SUCCESS row contract", () => {
+  let loginSuccessId;
+
+  before(async () => {
+    const { randomUUID } = await import("crypto");
+    loginSuccessId = randomUUID();
+    await insertAuditLog({
+      id: loginSuccessId,
+      userId: testUserId,
+      action: "LOGIN_SUCCESS",
+      entity: "user",
+      entityId: testUserId,
+      details: { email: testUserEmail, role: "user" },
+    });
+  });
+
+  after(async () => {
+    await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [loginSuccessId]);
+  });
+
+  test("LOGIN_SUCCESS row is retrievable by action filter", async () => {
+    const rows = await selectAuditLogs({ action: "LOGIN_SUCCESS", userId: testUserId });
+    const found = rows.find((r) => r.id === loginSuccessId);
+    assert.ok(found, "Should find the LOGIN_SUCCESS row");
+    assert.equal(found.action, "LOGIN_SUCCESS");
+    assert.equal(found.entity, "user");
+  });
+
+  test("LOGIN_SUCCESS details_json contains email and role", async () => {
+    const rows = await selectAuditLogs({ action: "LOGIN_SUCCESS", userId: testUserId });
+    const found = rows.find((r) => r.id === loginSuccessId);
+    assert.ok(found);
+    assert.equal(found.details_json.email, testUserEmail);
+    assert.equal(found.details_json.role, "user");
+  });
+
+  test("LOGIN_SUCCESS is filterable by role via details_json", async () => {
+    const rows = await selectAuditLogs({ role: "user", userId: testUserId });
+    const found = rows.find((r) => r.id === loginSuccessId);
+    assert.ok(found, "LOGIN_SUCCESS should be found when filtering by role=user");
+  });
+
+  test("LOGIN_SUCCESS is filterable by email ILIKE", async () => {
+    const fragment = testUserEmail.split("@")[0].slice(0, 8);
+    const rows = await selectAuditLogs({ email: fragment });
+    const found = rows.find((r) => r.id === loginSuccessId);
+    assert.ok(found, "LOGIN_SUCCESS should be found when filtering by email substring");
+  });
+
+  test("LOGIN_SUCCESS details_json does not contain password or token fields", async () => {
+    const rows = await selectAuditLogs({ action: "LOGIN_SUCCESS", userId: testUserId });
+    const found = rows.find((r) => r.id === loginSuccessId);
+    assert.ok(found);
+    assert.equal("password" in found.details_json, false);
+    assert.equal("password_hash" in found.details_json, false);
+    assert.equal("token" in found.details_json, false);
+  });
+});
+
+describe("Auth audit events — LOGIN_FAILURE row contract", () => {
+  let failureWrongPwId, failureBlockedId, failureMissingHashId, failureUnknownUserId;
+
+  before(async () => {
+    const { randomUUID } = await import("crypto");
+    failureWrongPwId    = randomUUID();
+    failureBlockedId    = randomUUID();
+    failureMissingHashId = randomUUID();
+    failureUnknownUserId = randomUUID();
+
+    await insertAuditLog({
+      id: failureWrongPwId,
+      userId: testUserId,
+      action: "LOGIN_FAILURE",
+      entity: "user",
+      entityId: testUserId,
+      details: { email: testUserEmail, reason: "wrong_password", role: "user" },
+    });
+    await insertAuditLog({
+      id: failureBlockedId,
+      userId: testUserId,
+      action: "LOGIN_FAILURE",
+      entity: "user",
+      entityId: testUserId,
+      details: { email: testUserEmail, reason: "blocked", role: "user" },
+    });
+    await insertAuditLog({
+      id: failureMissingHashId,
+      userId: testUserId,
+      action: "LOGIN_FAILURE",
+      entity: "user",
+      entityId: testUserId,
+      details: { email: testUserEmail, reason: "missing_hash", role: "user" },
+    });
+    // Unknown user (no DB row) — user_id must be NULL to satisfy FK.
+    await insertAuditLog({
+      id: failureUnknownUserId,
+      userId: null,
+      action: "LOGIN_FAILURE",
+      entity: "user",
+      entityId: null,
+      details: { email: "unknown@example.com", reason: "missing_hash", role: null },
+    });
+  });
+
+  after(async () => {
+    await pool.query(
+      `DELETE FROM audit_logs WHERE id = ANY($1)`,
+      [[failureWrongPwId, failureBlockedId, failureMissingHashId, failureUnknownUserId]]
+    );
+  });
+
+  test("LOGIN_FAILURE rows are retrievable by action filter", async () => {
+    const rows = await selectAuditLogs({ action: "LOGIN_FAILURE", userId: testUserId });
+    const ids = rows.map((r) => r.id);
+    assert.ok(ids.includes(failureWrongPwId), "wrong_password row should be present");
+    assert.ok(ids.includes(failureBlockedId), "blocked row should be present");
+    assert.ok(ids.includes(failureMissingHashId), "missing_hash row should be present");
+  });
+
+  test("reason=wrong_password is stored in details_json", async () => {
+    const rows = await selectAuditLogs({ action: "LOGIN_FAILURE", userId: testUserId });
+    const found = rows.find((r) => r.id === failureWrongPwId);
+    assert.ok(found);
+    assert.equal(found.details_json.reason, "wrong_password");
+  });
+
+  test("reason=blocked is stored in details_json", async () => {
+    const rows = await selectAuditLogs({ action: "LOGIN_FAILURE", userId: testUserId });
+    const found = rows.find((r) => r.id === failureBlockedId);
+    assert.ok(found);
+    assert.equal(found.details_json.reason, "blocked");
+  });
+
+  test("reason=missing_hash is stored in details_json", async () => {
+    const rows = await selectAuditLogs({ action: "LOGIN_FAILURE", userId: testUserId });
+    const found = rows.find((r) => r.id === failureMissingHashId);
+    assert.ok(found);
+    assert.equal(found.details_json.reason, "missing_hash");
+  });
+
+  test("LOGIN_FAILURE with null userId (unknown user) is accepted by schema", async () => {
+    const { rows } = await pool.query(
+      `SELECT id, user_id, details_json FROM audit_logs WHERE id = $1`,
+      [failureUnknownUserId]
+    );
+    assert.ok(rows[0], "Row should exist");
+    assert.equal(rows[0].user_id, null, "user_id must be null for unknown user");
+    assert.equal(rows[0].details_json.reason, "missing_hash");
+  });
+
+  test("LOGIN_FAILURE details_json does not contain password fields", async () => {
+    const rows = await selectAuditLogs({ action: "LOGIN_FAILURE", userId: testUserId });
+    for (const r of rows) {
+      assert.equal("password" in r.details_json, false);
+      assert.equal("password_hash" in r.details_json, false);
+    }
+  });
+});
+
+describe("Auth audit events — OAUTH_LOGIN_SUCCESS row contract", () => {
+  let oauthLogId;
+
+  before(async () => {
+    const { randomUUID } = await import("crypto");
+    oauthLogId = randomUUID();
+    await insertAuditLog({
+      id: oauthLogId,
+      userId: testUserId,
+      action: "OAUTH_LOGIN_SUCCESS",
+      entity: "user",
+      entityId: testUserId,
+      details: { email: testUserEmail, role: "user", provider: "github" },
+    });
+  });
+
+  after(async () => {
+    await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [oauthLogId]);
+  });
+
+  test("OAUTH_LOGIN_SUCCESS row is retrievable by action filter", async () => {
+    const rows = await selectAuditLogs({ action: "OAUTH_LOGIN_SUCCESS", userId: testUserId });
+    const found = rows.find((r) => r.id === oauthLogId);
+    assert.ok(found, "Should find the OAUTH_LOGIN_SUCCESS row");
+    assert.equal(found.action, "OAUTH_LOGIN_SUCCESS");
+  });
+
+  test("OAUTH_LOGIN_SUCCESS details_json contains email, role, and provider", async () => {
+    const rows = await selectAuditLogs({ action: "OAUTH_LOGIN_SUCCESS", userId: testUserId });
+    const found = rows.find((r) => r.id === oauthLogId);
+    assert.ok(found);
+    assert.equal(found.details_json.email, testUserEmail);
+    assert.equal(found.details_json.role, "user");
+    assert.equal(found.details_json.provider, "github");
+  });
+
+  test("OAUTH_LOGIN_SUCCESS is filterable by role via details_json", async () => {
+    const rows = await selectAuditLogs({ role: "user", userId: testUserId });
+    const found = rows.find((r) => r.id === oauthLogId);
+    assert.ok(found, "OAUTH_LOGIN_SUCCESS should be found when filtering by role=user");
+  });
+
+  test("OAUTH_LOGIN_SUCCESS is filterable by email ILIKE", async () => {
+    const fragment = testUserEmail.split("@")[0].slice(0, 8);
+    const rows = await selectAuditLogs({ email: fragment });
+    const found = rows.find((r) => r.id === oauthLogId);
+    assert.ok(found, "OAUTH_LOGIN_SUCCESS should be found when filtering by email substring");
+  });
+
+  test("OAUTH_LOGIN_SUCCESS details_json does not contain token or secret fields", async () => {
+    const rows = await selectAuditLogs({ action: "OAUTH_LOGIN_SUCCESS", userId: testUserId });
+    const found = rows.find((r) => r.id === oauthLogId);
+    assert.ok(found);
+    assert.equal("token" in found.details_json, false);
+    assert.equal("secret" in found.details_json, false);
+    assert.equal("password" in found.details_json, false);
   });
 });

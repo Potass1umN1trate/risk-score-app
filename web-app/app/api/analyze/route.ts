@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { authorizeFreshUser } from "@/lib/authz";
-import { getNetworkAnalysisConfig, patchAnalysisRequestUserId } from "@/lib/db";
+import { getNetworkAnalysisConfig, patchAnalysisRequestUserId, logAuditEvent } from "@/lib/db";
 
 const ANALYTICS_SERVICE_URL = process.env.ANALYTICS_SERVICE_URL;
 
@@ -201,6 +201,20 @@ export async function POST(req: NextRequest) {
   if (upstream.ok && typeof data?.request_id === "string" && authz.user?.id) {
     patchAnalysisRequestUserId(data.request_id, authz.user.id).catch(() => {
       // Non-fatal: history will simply not show this analysis for the user.
+    });
+    void logAuditEvent({
+      userId: authz.user.id,
+      action: "RUN_ANALYSIS",
+      entity: "analysis",
+      entityId: data.request_id,
+      details: {
+        role: authz.user.role,
+        address: upstreamBody.address,
+        network: upstreamBody.network,
+        risk_level: data.risk_level ?? null,
+        request_id: data.request_id,
+        result_id: data.result_id ?? null,
+      },
     });
   }
 

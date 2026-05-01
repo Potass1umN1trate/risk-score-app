@@ -5,6 +5,7 @@ import { authorizeFreshUser } from "@/lib/authz";
 import {
   getFlaggedAddresses,
   createFlaggedAddress,
+  logAuditEvent,
   type FlaggedAddressFilters,
 } from "@/lib/db";
 
@@ -79,6 +80,18 @@ export async function POST(req: NextRequest) {
       { network_code, address, risk_category_code, comment },
       authz.user.id
     );
+    void logAuditEvent({
+      userId: authz.user.id,
+      action: "FLAGGED_ADDRESS_CREATED",
+      entity: "flagged_address",
+      entityId: created.id,
+      details: {
+        role: authz.user.role,
+        network_code: created.network_code,
+        address: created.address,
+        risk_category_code: created.risk_category_code,
+      },
+    });
     return NextResponse.json(created, { status: 201 });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";

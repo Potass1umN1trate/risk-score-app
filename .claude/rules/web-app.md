@@ -34,17 +34,16 @@
 - [x] Middleware and RBAC updated — `/history/:path*` added to middleware matcher; `requiredRoleForPath` returns `"user"` for `/history` and `/history/*`; unauthenticated page requests redirect to `/login`; unauthenticated API requests return JSON 401
 - [x] Dashboard and nav updated — "Analysis history" card added to `/dashboard`; "History" link added to global nav for authenticated users
 
+- [x] Audit logging — `logAuditEvent()` in `lib/db.ts` writes to `audit_logs` with best-effort fire-and-forget (errors swallowed, never thrown into the main flow); `userId` accepts `string | null`; all events include `role` snapshot in `details_json`; no passwords, hashes, tokens, or secrets are ever written to `details_json`; implemented events: `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_BLOCKED`, `USER_UNBLOCKED`, `USER_DELETED`, `NETWORK_CONFIG_CHANGED` (admin actions); `USER_REGISTERED` (self-registration, userId = new user's id); `RUN_ANALYSIS` (all roles, on successful upstream 200); `FLAGGED_ADDRESS_CREATED`, `FLAGGED_ADDRESS_UPDATED`, `FLAGGED_ADDRESS_DEACTIVATED`, `FLAGGED_ADDRESS_IMPORT`, `FLAGGED_ADDRESS_EXPORT` (moderator/admin flagged-address flows); `LOGIN_SUCCESS` (credentials login, `details: {email, role}`); `LOGIN_FAILURE` (credentials login denied, `details: {email, reason, role}` — reason is `wrong_password` | `blocked` | `missing_hash`; userId is null when user not found); `OAUTH_LOGIN_SUCCESS` (GitHub OAuth login, `details: {email, role, provider}`); auth-flow logging is in `web-app/auth.ts` `authorize()` and `signIn` callback; all three auth events are fire-and-forget; historical events before Phase 3 have no login audit rows
+- [x] Audit log viewer (admin-only) — `GET /api/admin/audit-logs` supports filters: `action` (exact), `userId` (exact), `email` (ILIKE substring on joined users.email), `role` (matches `details_json->>'role'` snapshot — only matches events logged after Phase 2), `entity` (exact), `dateFrom` (inclusive), `dateTo` (exclusive; date-only `YYYY-MM-DD` strings are normalized to end-of-day `T23:59:59.999Z` in the route handler); `page` + `limit` (default 20, max 100); `/admin/audit-logs` page has a filter bar with email search, role select, event-type select, dateFrom/dateTo date inputs; viewer remains admin-only; filter changes reset to page 1; empty state updated to say "user and admin actions" instead of "admin actions only"
+
 ## NOT Implemented ❌
-- [ ] Web-app REST API for flagged-address management, user management, audit log, system settings
 - [ ] Password reset
 - [ ] Database-backed sessions / immediate global session revocation
-- [ ] Full audit logging: failed login, analysis run, flagged-address changes, admin actions
-- [ ] Admin: user management
-- [ ] Admin: audit log view
 - [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
 - [ ] Add padding to "Sign In" button
-- [ ] Fix: analysis do not take into consideratoin that addreses added to flagged-address 
+- [ ] Fix: analysis do not take into consideration that addresses added to flagged-address list affect scoring
 - [ ] Add activate button for flagged-address records instead of only deactivate; currently once a record is deactivated it cannot be reactivated, even by admin
 
 ---
@@ -71,15 +70,17 @@ The web application implements the browser-facing algorithm:
 ### Auth
 
 - Implemented login: email + password through NextAuth.js Credentials provider.
+- Implemented login: GitHub OAuth through `GitHubProvider`; blocked users denied in `signIn` callback.
 - Implemented registration: `POST /api/register` → `lib/db.ts#createUser()` → `users` row + `user` role; auto-signs in after success.
-- Not implemented: password reset, GitHub OAuth.
+- Not implemented: password reset.
 - Email must be unique.
 - Blocked users (`is_blocked = TRUE`) are denied at sign-in.
 - Middleware denies requests when the JWT `isBlocked` claim is true.
 - JWT middleware claims can be stale until token refresh/re-login.
 - Protected API/server guards re-check DB state for sensitive actions such as `/api/analyze`.
 - Full database-backed sessions / immediate global session revocation is NOT Implemented.
-- Failed login attempts are not yet written to `audit_logs`.
+- Credentials login outcomes are written to `audit_logs`: `LOGIN_SUCCESS` on success; `LOGIN_FAILURE` (with reason `wrong_password`, `blocked`, or `missing_hash`) on failure.
+- GitHub OAuth login success is written to `audit_logs` as `OAUTH_LOGIN_SUCCESS`.
 - Successful login determines the effective user role: `user`, `moderator`, or `admin`; if multiple roles exist, the strongest role is used (`admin > moderator > user`).
 - After successful login, user is redirected to the main menu/dashboard.
 
@@ -226,20 +227,24 @@ Admin only:
 
 ### Audit Log
 
-Admin only:
+Viewer: admin only.
+Writers: all roles (see implemented events below).
 
-- View audit journal.
-- Events include:
-  - failed login;
-  - successful login where needed;
-  - run analysis;
-  - add flagged address;
-  - deactivate flagged address;
-  - import flagged addresses;
-  - export flagged addresses;
-  - user role change;
-  - block/unblock user.
-- Raw SQL errors or internal stack traces must never be exposed through API responses.
+Implemented events:
+- `LOGIN_SUCCESS` — all roles (successful credentials login; `details: {email, role}`)
+- `LOGIN_FAILURE` — all roles (failed credentials login; `details: {email, reason, role}` — reason: `wrong_password` | `blocked` | `missing_hash`; userId null when user not found)
+- `OAUTH_LOGIN_SUCCESS` — all roles (successful GitHub OAuth login; `details: {email, role, provider}`)
+- `USER_REGISTERED` — all users (self-registration; `details: {email, role: "user"}`)
+- `RUN_ANALYSIS` — all roles (successful analysis; `details: {address, network, risk_level, request_id, result_id, role}`)
+- `FLAGGED_ADDRESS_CREATED` / `FLAGGED_ADDRESS_UPDATED` / `FLAGGED_ADDRESS_DEACTIVATED` — moderator + admin
+- `FLAGGED_ADDRESS_IMPORT` / `FLAGGED_ADDRESS_EXPORT` — moderator + admin
+- `USER_CREATED` / `USER_ROLE_CHANGED` / `USER_BLOCKED` / `USER_UNBLOCKED` / `USER_DELETED` — admin
+- `NETWORK_CONFIG_CHANGED` — admin
+
+No events are deferred. Historical rows before Phase 3 have no login audit entries.
+
+Viewer filters: action, userId, email (substring), role (details_json snapshot), entity, dateFrom, dateTo.
+Raw SQL errors or internal stack traces must never be exposed through API responses.
 
 ### System Settings
 
@@ -310,7 +315,7 @@ The web-app consumes analytics-service REST API for address analysis.
 - ✅ Validate address format before sending to analytics-service.
 - ✅ TypeScript strict mode.
 - ✅ Blocked users denied at middleware level.
-- ✅ Failed login attempts written to `audit_logs`.
+- ✅ Auth-flow audit logging implemented — `LOGIN_SUCCESS`, `LOGIN_FAILURE` (with reason), and `OAUTH_LOGIN_SUCCESS` are written to `audit_logs` from `web-app/auth.ts`; fire-and-forget; no sensitive fields in details.
 - ✅ All browser-facing API responses use JSON.
 - ✅ External/public access must use HTTPS in deployed environment.
 - ✅ Web-app calls analytics-service through internal service URL in k8s.

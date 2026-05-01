@@ -23,14 +23,35 @@ interface AuditLogResponse {
 
 const PAGE_LIMIT = 20;
 
+const KNOWN_ACTIONS = [
+  "LOGIN_SUCCESS",
+  "LOGIN_FAILURE",
+  "OAUTH_LOGIN_SUCCESS",
+  "USER_REGISTERED",
+  "USER_CREATED",
+  "USER_ROLE_CHANGED",
+  "USER_BLOCKED",
+  "USER_UNBLOCKED",
+  "USER_DELETED",
+  "NETWORK_CONFIG_CHANGED",
+  "RUN_ANALYSIS",
+  "FLAGGED_ADDRESS_CREATED",
+  "FLAGGED_ADDRESS_UPDATED",
+  "FLAGGED_ADDRESS_DEACTIVATED",
+  "FLAGGED_ADDRESS_IMPORT",
+  "FLAGGED_ADDRESS_EXPORT",
+];
+
+const ROLES = ["user", "moderator", "admin"] as const;
+
 function formatDate(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleDateString("en-CA"); // YYYY-MM-DD
+  return d.toLocaleDateString("en-CA");
 }
 
 function formatTime(iso: string): string {
   const d = new Date(iso);
-  return d.toLocaleTimeString("en-GB"); // HH:MM:SS
+  return d.toLocaleTimeString("en-GB");
 }
 
 export default function AuditLogsPage() {
@@ -39,11 +60,27 @@ export default function AuditLogsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const fetchLogs = useCallback(async (p: number) => {
+  // Filter state
+  const [email, setEmail] = useState("");
+  const [role, setRole] = useState("");
+  const [action, setAction] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const fetchLogs = useCallback(async (p: number, filters: {
+    email: string; role: string; action: string; dateFrom: string; dateTo: string;
+  }) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(`/api/admin/audit-logs?page=${p}&limit=${PAGE_LIMIT}`);
+      const params = new URLSearchParams({ page: String(p), limit: String(PAGE_LIMIT) });
+      if (filters.email) params.set("email", filters.email);
+      if (filters.role) params.set("role", filters.role);
+      if (filters.action) params.set("action", filters.action);
+      if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
+      if (filters.dateTo) params.set("dateTo", filters.dateTo);
+
+      const res = await fetch(`/api/admin/audit-logs?${params.toString()}`);
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         setError((body as { error?: string }).error ?? "Failed to load audit logs.");
@@ -59,17 +96,35 @@ export default function AuditLogsPage() {
   }, []);
 
   useEffect(() => {
-    fetchLogs(page);
-  }, [fetchLogs, page]);
+    fetchLogs(page, { email, role, action, dateFrom, dateTo });
+  }, [fetchLogs, page]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function applyFilters() {
+    setPage(1);
+    fetchLogs(1, { email, role, action, dateFrom, dateTo });
+  }
+
+  function clearFilters() {
+    setEmail("");
+    setRole("");
+    setAction("");
+    setDateFrom("");
+    setDateTo("");
+    setPage(1);
+    fetchLogs(1, { email: "", role: "", action: "", dateFrom: "", dateTo: "" });
+  }
 
   const totalPages = data ? Math.max(1, Math.ceil(data.total / PAGE_LIMIT)) : 1;
+  const hasActiveFilters = email || role || action || dateFrom || dateTo;
 
   return (
     <div>
       <div className="page-header">
         <h1>Audit log</h1>
         <p className="muted-text">
-          {data ? `${data.total} total ${data.total === 1 ? "event" : "events"}` : "Admin action history."}
+          {data
+            ? `${data.total} total ${data.total === 1 ? "event" : "events"}`
+            : "User and admin action history."}
         </p>
       </div>
 
@@ -77,6 +132,97 @@ export default function AuditLogsPage() {
         <Link href="/admin" style={{ color: "var(--color-muted)", fontSize: "0.9rem" }}>
           ← Admin tools
         </Link>
+      </div>
+
+      {/* Filter bar */}
+      <div className="card" style={{ marginBottom: "1rem", padding: "1rem" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))", gap: "0.75rem", alignItems: "end" }}>
+          <div>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-muted)", marginBottom: "0.25rem" }}>
+              User email
+            </label>
+            <input
+              className="input"
+              type="text"
+              placeholder="Search email…"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && applyFilters()}
+              style={{ width: "100%", boxSizing: "border-box" }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-muted)", marginBottom: "0.25rem" }}>
+              Role
+            </label>
+            <select
+              className="input"
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              style={{ width: "100%", boxSizing: "border-box" }}
+            >
+              <option value="">All roles</option>
+              {ROLES.map((r) => (
+                <option key={r} value={r}>{r}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-muted)", marginBottom: "0.25rem" }}>
+              Event type
+            </label>
+            <select
+              className="input"
+              value={action}
+              onChange={(e) => setAction(e.target.value)}
+              style={{ width: "100%", boxSizing: "border-box" }}
+            >
+              <option value="">All events</option>
+              {KNOWN_ACTIONS.map((a) => (
+                <option key={a} value={a}>{a}</option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-muted)", marginBottom: "0.25rem" }}>
+              From date
+            </label>
+            <input
+              className="input"
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              style={{ width: "100%", boxSizing: "border-box" }}
+            />
+          </div>
+
+          <div>
+            <label style={{ display: "block", fontSize: "0.8rem", color: "var(--color-muted)", marginBottom: "0.25rem" }}>
+              To date
+            </label>
+            <input
+              className="input"
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              style={{ width: "100%", boxSizing: "border-box" }}
+            />
+          </div>
+
+          <div style={{ display: "flex", gap: "0.5rem" }}>
+            <button className="btn btn-primary" onClick={applyFilters} disabled={loading} style={{ flex: 1 }}>
+              Apply
+            </button>
+            {hasActiveFilters && (
+              <button className="btn" onClick={clearFilters} disabled={loading} title="Clear filters">
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
       </div>
 
       {error && <div className="alert error">{error}</div>}
@@ -89,7 +235,7 @@ export default function AuditLogsPage() {
 
       {data && data.items.length === 0 && (
         <div className="card" style={{ color: "var(--color-muted)" }}>
-          No audit events recorded yet. Events will appear here after admin actions are performed.
+          No audit events found{hasActiveFilters ? " matching the current filters" : ""}. Events are recorded after user and admin actions are performed.
         </div>
       )}
 

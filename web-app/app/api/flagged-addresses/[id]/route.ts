@@ -6,6 +6,7 @@ import {
   getFlaggedAddressById,
   updateFlaggedAddress,
   deactivateFlaggedAddress,
+  logAuditEvent,
 } from "@/lib/db";
 
 export const runtime = "nodejs";
@@ -85,6 +86,13 @@ export async function PATCH(
   try {
     const updated = await updateFlaggedAddress(id, patch);
     if (!updated) return NextResponse.json({ error: "Not found or already deactivated" }, { status: 404 });
+    void logAuditEvent({
+      userId: authz.user.id,
+      action: "FLAGGED_ADDRESS_UPDATED",
+      entity: "flagged_address",
+      entityId: id,
+      details: { role: authz.user.role, changes: patch },
+    });
     return NextResponse.json(updated);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "";
@@ -118,6 +126,17 @@ export async function DELETE(
     if (!deactivated) {
       return NextResponse.json({ error: "Record not found or already deactivated" }, { status: 404 });
     }
+    void logAuditEvent({
+      userId: authz.user.id,
+      action: "FLAGGED_ADDRESS_DEACTIVATED",
+      entity: "flagged_address",
+      entityId: id,
+      details: {
+        role: authz.user.role,
+        address: record.address,
+        network_code: record.network_code,
+      },
+    });
     return NextResponse.json({ ok: true });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { authorizeFreshUser } from "@/lib/authz";
-import { importFlaggedAddresses, type ImportRecord } from "@/lib/db";
+import { importFlaggedAddresses, logAuditEvent, type ImportRecord } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -138,6 +138,18 @@ export async function POST(req: NextRequest) {
 
   try {
     const result = await importFlaggedAddresses(records, authz.user.id);
+    void logAuditEvent({
+      userId: authz.user.id,
+      action: "FLAGGED_ADDRESS_IMPORT",
+      entity: "flagged_address",
+      entityId: null,
+      details: {
+        role: authz.user.role,
+        inserted: result.inserted,
+        skipped: result.skipped,
+        error_count: result.errors.length,
+      },
+    });
     return NextResponse.json(result, { status: 200 });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });

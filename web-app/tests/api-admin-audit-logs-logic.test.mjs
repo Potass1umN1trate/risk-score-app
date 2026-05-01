@@ -21,14 +21,25 @@ function parsePaginationParams({ limit, page }) {
   };
 }
 
-function parseFilters({ action, userId, entity, dateFrom, dateTo }) {
+function parseFilters({ action, userId, email, role, entity, dateFrom, dateTo }) {
   const filters = {};
   if (action)   filters.action   = action;
   if (userId)   filters.userId   = userId;
+  if (email)    filters.email    = email;
+  if (role)     filters.role     = role;
   if (entity)   filters.entity   = entity;
   if (dateFrom) filters.dateFrom = dateFrom;
   if (dateTo)   filters.dateTo   = dateTo;
   return filters;
+}
+
+// Mirrors the dateTo normalization in the route handler.
+function normalizeDate(rawDateTo) {
+  if (!rawDateTo) return rawDateTo;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDateTo)) {
+    return `${rawDateTo}T23:59:59.999Z`;
+  }
+  return rawDateTo;
 }
 
 function makeAuthResult(scenario) {
@@ -159,25 +170,65 @@ describe("Filter param parsing", () => {
     assert.equal(f.dateTo, "2026-12-31");
   });
 
+  test("email filter is included when set", () => {
+    const f = parseFilters({ email: "alice@example.com" });
+    assert.equal(f.email, "alice@example.com");
+  });
+
+  test("role filter is included when set", () => {
+    const f = parseFilters({ role: "moderator" });
+    assert.equal(f.role, "moderator");
+  });
+
   test("undefined values are excluded from filters", () => {
     const f = parseFilters({ action: undefined, userId: "u1" });
     assert.equal("action" in f, false);
     assert.equal(f.userId, "u1");
   });
 
-  test("all filters together", () => {
+  test("all filters together including email and role", () => {
     const f = parseFilters({
       action: "USER_BLOCKED",
       userId: "uid",
+      email: "bob@example.com",
+      role: "admin",
       entity: "user",
       dateFrom: "2026-01-01",
       dateTo: "2026-06-01",
     });
     assert.equal(f.action, "USER_BLOCKED");
     assert.equal(f.userId, "uid");
+    assert.equal(f.email, "bob@example.com");
+    assert.equal(f.role, "admin");
     assert.equal(f.entity, "user");
     assert.equal(f.dateFrom, "2026-01-01");
     assert.equal(f.dateTo, "2026-06-01");
+  });
+});
+
+// ─── dateTo normalization ─────────────────────────────────────────────────────
+
+describe("dateTo end-of-day normalization", () => {
+  test("date-only string YYYY-MM-DD is padded to end-of-day", () => {
+    assert.equal(normalizeDate("2026-04-30"), "2026-04-30T23:59:59.999Z");
+  });
+
+  test("already has time component → left unchanged", () => {
+    assert.equal(normalizeDate("2026-04-30T10:00:00.000Z"), "2026-04-30T10:00:00.000Z");
+  });
+
+  test("null/undefined → passed through", () => {
+    assert.equal(normalizeDate(null), null);
+    assert.equal(normalizeDate(undefined), undefined);
+  });
+
+  test("empty string → passed through (falsy guard)", () => {
+    assert.equal(normalizeDate(""), "");
+  });
+
+  test("normalized dateTo preserves date boundary", () => {
+    const result = normalizeDate("2026-01-01");
+    assert.ok(result.startsWith("2026-01-01T23:59:59"));
   });
 });
 
@@ -240,12 +291,22 @@ describe("Response shape", () => {
 
 describe("Audit action taxonomy", () => {
   const EXPECTED_ACTIONS = [
+    // Admin-only actions (pre-existing)
     "USER_CREATED",
     "USER_ROLE_CHANGED",
     "USER_BLOCKED",
     "USER_UNBLOCKED",
     "USER_DELETED",
     "NETWORK_CONFIG_CHANGED",
+    // All-role actions (Phase 2)
+    "USER_REGISTERED",
+    "RUN_ANALYSIS",
+    // Moderator + admin actions (Phase 2)
+    "FLAGGED_ADDRESS_CREATED",
+    "FLAGGED_ADDRESS_UPDATED",
+    "FLAGGED_ADDRESS_DEACTIVATED",
+    "FLAGGED_ADDRESS_IMPORT",
+    "FLAGGED_ADDRESS_EXPORT",
   ];
 
   for (const action of EXPECTED_ACTIONS) {

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createUser, findUserByEmail } from "@/lib/db";
+import { createUser, findUserByEmail, logAuditEvent } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 
 const MIN_PASSWORD_LENGTH = 8;
@@ -52,6 +52,14 @@ export async function POST(req: NextRequest) {
 
   const passwordHash = await hashPassword(password);
   const user = await createUser(email, passwordHash);
+
+  void logAuditEvent({
+    userId: user.id,
+    action: "USER_REGISTERED",
+    entity: "user",
+    entityId: user.id,
+    details: { role: "user", email: user.email },
+  });
 
   return NextResponse.json({ id: user.id, email: user.email }, { status: 201 });
 }

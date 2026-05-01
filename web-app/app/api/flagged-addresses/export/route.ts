@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/auth";
 import { authorizeFreshUser } from "@/lib/authz";
-import { exportFlaggedAddresses } from "@/lib/db";
+import { exportFlaggedAddresses, logAuditEvent } from "@/lib/db";
 
 export const runtime = "nodejs";
 
@@ -51,6 +51,14 @@ export async function GET(req: NextRequest) {
 
   try {
     const items = await exportFlaggedAddresses();
+
+    void logAuditEvent({
+      userId: authz.user.id,
+      action: "FLAGGED_ADDRESS_EXPORT",
+      entity: "flagged_address",
+      entityId: null,
+      details: { role: authz.user.role, format, count: items.length },
+    });
 
     if (format === "csv") {
       const csv = toCsv(items);

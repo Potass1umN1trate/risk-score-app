@@ -1221,6 +1221,8 @@ export interface AuditLogItem {
 export interface AuditLogFilters {
   action?: string;
   userId?: string;
+  email?: string;
+  role?: string;
   entity?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -1238,7 +1240,7 @@ interface AuditLogRow extends QueryResultRow {
 }
 
 export async function logAuditEvent(event: {
-  userId: string;
+  userId: string | null;
   action: string;
   entity?: string | null;
   entityId?: string | null;
@@ -1279,6 +1281,14 @@ export async function getAuditLogs(
     params.push(filters.userId);
     conditions.push(`al.user_id = $${params.length}`);
   }
+  if (filters.email) {
+    params.push(`%${filters.email}%`);
+    conditions.push(`u.email ILIKE $${params.length}`);
+  }
+  if (filters.role) {
+    params.push(filters.role);
+    conditions.push(`al.details_json->>'role' = $${params.length}`);
+  }
   if (filters.entity) {
     params.push(filters.entity);
     conditions.push(`al.entity = $${params.length}`);
@@ -1292,6 +1302,8 @@ export async function getAuditLogs(
     conditions.push(`al.created_at < $${params.length}`);
   }
 
+  // email filter requires the users join in both list and count queries.
+  const needsUserJoin = Boolean(filters.email);
   const where = conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
 
   const listParams = [...params, limit, offset];
@@ -1316,7 +1328,10 @@ export async function getAuditLogs(
       listParams
     ),
     query<{ total: string }>(
-      `SELECT COUNT(*) AS total FROM audit_logs al ${where}`,
+      `SELECT COUNT(*) AS total
+       FROM audit_logs al
+       ${needsUserJoin ? "LEFT JOIN users u ON u.id = al.user_id" : ""}
+       ${where}`,
       countParams
     ),
   ]);

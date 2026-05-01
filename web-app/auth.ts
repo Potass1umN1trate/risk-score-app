@@ -1,7 +1,7 @@
 import type { NextAuthOptions } from "next-auth";
 import CredentialsProvider from "next-auth/providers/credentials";
 import GitHubProvider from "next-auth/providers/github";
-import { findUserByEmail, findOrCreateOAuthUser } from "@/lib/db";
+import { findUserByEmail, findOrCreateOAuthUser, logAuditEvent } from "@/lib/db";
 import { comparePassword } from "@/lib/password";
 
 if (!process.env.AUTH_SECRET && !process.env.NEXTAUTH_SECRET) {
@@ -35,22 +35,69 @@ export const authOptions: NextAuthOptions = {
 
         if (!email || !password) return null;
 
+        let user: Awaited<ReturnType<typeof findUserByEmail>> = null;
         try {
-          const user = await findUserByEmail(email);
-          if (!user?.passwordHash || user.isBlocked) return null;
-
-          const passwordMatches = await comparePassword(password, user.passwordHash);
-          if (!passwordMatches) return null;
-
-          return {
-            id: user.id,
-            email: user.email,
-            role: user.role,
-            isBlocked: user.isBlocked,
-          };
+          user = await findUserByEmail(email);
         } catch {
           return null;
         }
+
+        // Blocked user — deny before password check.
+        if (user?.isBlocked) {
+          void logAuditEvent({
+            userId: user.id,
+            action: "LOGIN_FAILURE",
+            entity: "user",
+            entityId: user.id,
+            details: { email, reason: "blocked", role: user.role },
+          });
+          return null;
+        }
+
+        // No password hash — OAuth-only account or missing credentials.
+        if (!user?.passwordHash) {
+          void logAuditEvent({
+            userId: user?.id ?? null,
+            action: "LOGIN_FAILURE",
+            entity: "user",
+            entityId: user?.id ?? null,
+            details: { email, reason: "missing_hash", role: user?.role ?? null },
+          });
+          return null;
+        }
+
+        let passwordMatches: boolean;
+        try {
+          passwordMatches = await comparePassword(password, user.passwordHash);
+        } catch {
+          return null;
+        }
+
+        if (!passwordMatches) {
+          void logAuditEvent({
+            userId: user.id,
+            action: "LOGIN_FAILURE",
+            entity: "user",
+            entityId: user.id,
+            details: { email, reason: "wrong_password", role: user.role },
+          });
+          return null;
+        }
+
+        void logAuditEvent({
+          userId: user.id,
+          action: "LOGIN_SUCCESS",
+          entity: "user",
+          entityId: user.id,
+          details: { email: user.email, role: user.role },
+        });
+
+        return {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          isBlocked: user.isBlocked,
+        };
       },
     }),
   ],
@@ -67,6 +114,13 @@ export const authOptions: NextAuthOptions = {
             email
           );
           if (user.isBlocked) return false;
+          void logAuditEvent({
+            userId: user.id,
+            action: "OAUTH_LOGIN_SUCCESS",
+            entity: "user",
+            entityId: user.id,
+            details: { email: user.email, role: user.role, provider: account.provider },
+          });
           return true;
         } catch {
           return false;

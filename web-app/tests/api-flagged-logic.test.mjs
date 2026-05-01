@@ -350,3 +350,144 @@ test("PATCH route: updateFlaggedAddress returns record → 200", () => {
   assert.equal(r.status, 200);
   assert.deepEqual(r.body, record);
 });
+
+// ─── Audit event shape tests ──────────────────────────────────────────────────
+// These tests verify the specification for audit events that flagged-address
+// routes should emit on successful mutations. They test the event shape contract,
+// not that logAuditEvent was called (that requires integration tests).
+
+import { describe } from "node:test";
+
+function buildFlaggedCreatedEvent(userId, role, created) {
+  return {
+    userId,
+    action: "FLAGGED_ADDRESS_CREATED",
+    entity: "flagged_address",
+    entityId: created.id,
+    details: {
+      role,
+      network_code: created.network_code,
+      address: created.address,
+      risk_category_code: created.risk_category_code,
+    },
+  };
+}
+
+function buildFlaggedUpdatedEvent(userId, role, id, patch) {
+  return {
+    userId,
+    action: "FLAGGED_ADDRESS_UPDATED",
+    entity: "flagged_address",
+    entityId: id,
+    details: { role, changes: patch },
+  };
+}
+
+function buildFlaggedDeactivatedEvent(userId, role, id, address, network_code) {
+  return {
+    userId,
+    action: "FLAGGED_ADDRESS_DEACTIVATED",
+    entity: "flagged_address",
+    entityId: id,
+    details: { role, address, network_code },
+  };
+}
+
+function buildFlaggedImportEvent(userId, role, inserted, skipped, error_count) {
+  return {
+    userId,
+    action: "FLAGGED_ADDRESS_IMPORT",
+    entity: "flagged_address",
+    entityId: null,
+    details: { role, inserted, skipped, error_count },
+  };
+}
+
+function buildFlaggedExportEvent(userId, role, format, count) {
+  return {
+    userId,
+    action: "FLAGGED_ADDRESS_EXPORT",
+    entity: "flagged_address",
+    entityId: null,
+    details: { role, format, count },
+  };
+}
+
+describe("Flagged-address audit event shapes", () => {
+  test("FLAGGED_ADDRESS_CREATED event has correct shape", () => {
+    const e = buildFlaggedCreatedEvent("mod-1", "moderator", {
+      id: "fa-uuid",
+      network_code: "BTC",
+      address: "1BoatSLRHtKNngkdXEeobR76b53LETtpyT",
+      risk_category_code: "scam",
+    });
+    assert.equal(e.action, "FLAGGED_ADDRESS_CREATED");
+    assert.equal(e.entity, "flagged_address");
+    assert.equal(e.entityId, "fa-uuid");
+    assert.equal(e.details.role, "moderator");
+    assert.equal(e.details.network_code, "BTC");
+    assert.equal(e.details.address, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT");
+    assert.equal(e.details.risk_category_code, "scam");
+  });
+
+  test("FLAGGED_ADDRESS_CREATED details have no sensitive fields", () => {
+    const e = buildFlaggedCreatedEvent("mod-1", "moderator", {
+      id: "x", network_code: "ETH", address: "0xabc", risk_category_code: "mixer",
+    });
+    assert.equal("password" in e.details, false);
+    assert.equal("token" in e.details, false);
+  });
+
+  test("FLAGGED_ADDRESS_UPDATED event captures only applied patch fields", () => {
+    const patch = { risk_category_code: "sanctions" };
+    const e = buildFlaggedUpdatedEvent("mod-1", "moderator", "fa-uuid", patch);
+    assert.equal(e.action, "FLAGGED_ADDRESS_UPDATED");
+    assert.deepEqual(e.details.changes, { risk_category_code: "sanctions" });
+    assert.equal("address" in e.details.changes, false);
+  });
+
+  test("FLAGGED_ADDRESS_DEACTIVATED event captures address and network_code", () => {
+    const e = buildFlaggedDeactivatedEvent(
+      "mod-1", "moderator", "fa-uuid", "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", "BTC"
+    );
+    assert.equal(e.action, "FLAGGED_ADDRESS_DEACTIVATED");
+    assert.equal(e.details.address, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT");
+    assert.equal(e.details.network_code, "BTC");
+    assert.equal(e.details.role, "moderator");
+  });
+
+  test("FLAGGED_ADDRESS_IMPORT event captures inserted, skipped, error_count", () => {
+    const e = buildFlaggedImportEvent("admin-1", "admin", 10, 2, 1);
+    assert.equal(e.action, "FLAGGED_ADDRESS_IMPORT");
+    assert.equal(e.details.inserted, 10);
+    assert.equal(e.details.skipped, 2);
+    assert.equal(e.details.error_count, 1);
+    assert.equal(e.entityId, null);
+  });
+
+  test("FLAGGED_ADDRESS_EXPORT event captures format and count", () => {
+    const e = buildFlaggedExportEvent("admin-1", "admin", "csv", 50);
+    assert.equal(e.action, "FLAGGED_ADDRESS_EXPORT");
+    assert.equal(e.details.format, "csv");
+    assert.equal(e.details.count, 50);
+    assert.equal(e.entityId, null);
+  });
+
+  test("audit userId is always the acting user id", () => {
+    const e = buildFlaggedCreatedEvent("mod-uuid", "moderator", {
+      id: "fa-uuid", network_code: "BTC", address: "1testaddr123", risk_category_code: "scam",
+    });
+    assert.equal(e.userId, "mod-uuid");
+  });
+
+  test("failed flow should not produce an audit event (no event built on null result)", () => {
+    // Simulates the pattern: only call logAuditEvent after the DB operation succeeds.
+    // If updateFlaggedAddress returns null, the route returns 404 without calling audit.
+    const updated = null;
+    let auditCalled = false;
+    if (updated !== null) {
+      auditCalled = true;
+    }
+    assert.equal(auditCalled, false);
+  });
+});

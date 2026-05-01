@@ -33,12 +33,22 @@ export async function GET(req: NextRequest) {
   const filters: AuditLogFilters = {};
   const action = searchParams.get("action");
   const userId = searchParams.get("userId");
+  const email = searchParams.get("email");
+  const role = searchParams.get("role");
   const entity = searchParams.get("entity");
   const dateFrom = searchParams.get("dateFrom");
-  const dateTo = searchParams.get("dateTo");
+  const rawDateTo = searchParams.get("dateTo");
+
+  // Normalize date-only dateTo (YYYY-MM-DD) to end-of-day so it's inclusive.
+  let dateTo: string | null = rawDateTo;
+  if (rawDateTo && /^\d{4}-\d{2}-\d{2}$/.test(rawDateTo)) {
+    dateTo = `${rawDateTo}T23:59:59.999Z`;
+  }
 
   if (action) filters.action = action;
   if (userId) filters.userId = userId;
+  if (email) filters.email = email;
+  if (role) filters.role = role;
   if (entity) filters.entity = entity;
   if (dateFrom) filters.dateFrom = dateFrom;
   if (dateTo) filters.dateTo = dateTo;

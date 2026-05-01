@@ -131,7 +131,17 @@
       "Bash(node --test tests/auth-config.test.mjs tests/rbac.test.mjs)",
       "Bash(node --test tests/rbac-flagged.test.mjs tests/api-flagged-logic.test.mjs tests/db-flagged.test.mjs)",
       "Bash(node --test tests/rbac.test.mjs tests/api-history-logic.test.mjs tests/export-ui.test.mjs tests/auth-config.test.mjs tests/api-oauth-flow.test.mjs tests/oauth-db.test.mjs)",
-      "Bash(node --test /home/ubuntu/risk-score-crypto-app/risk-score-app/web-app/tests/db-admin-users.test.mjs)"
+      "Bash(node --test /home/ubuntu/risk-score-crypto-app/risk-score-app/web-app/tests/db-admin-users.test.mjs)",
+      "Bash(node --test tests/api-admin-audit-logs-logic.test.mjs)",
+      "Bash(node --test tests/api-flagged-logic.test.mjs)",
+      "Bash(node --test tests/api-analyze-audit-logic.test.mjs)",
+      "Bash(DATABASE_URL=\"\" node --test tests/db-history.test.mjs)",
+      "Bash(node --test tests/rbac.test.mjs tests/api-history-logic.test.mjs tests/api-admin-audit-logs-logic.test.mjs tests/api-admin-users-logic.test.mjs tests/api-admin-networks-logic.test.mjs tests/api-flagged-logic.test.mjs tests/api-analyze-audit-logic.test.mjs tests/export-ui.test.mjs)",
+      "Bash(node --test tests/api-analyze-audit-logic.test.mjs tests/api-admin-audit-logs-logic.test.mjs tests/api-flagged-logic.test.mjs)",
+      "Bash(node --test tests/)",
+      "Bash(node --test tests/api-analyze-audit-logic.test.mjs tests/api-admin-audit-logs-logic.test.mjs tests/api-flagged-logic.test.mjs tests/rbac.test.mjs tests/api-history-logic.test.mjs tests/export-ui.test.mjs)",
+      "Bash(node --test tests/api-auth-audit-logic.test.mjs)",
+      "Bash(node --test tests/api-auth-audit-logic.test.mjs tests/api-analyze-audit-logic.test.mjs tests/api-admin-audit-logs-logic.test.mjs tests/api-flagged-logic.test.mjs tests/rbac.test.mjs tests/api-history-logic.test.mjs tests/export-ui.test.mjs tests/auth-config.test.mjs tests/api-oauth-flow.test.mjs)"
     ]
   }
 }
