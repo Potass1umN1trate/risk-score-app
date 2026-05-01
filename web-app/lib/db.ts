@@ -683,6 +683,14 @@ export async function deactivateFlaggedAddress(id: string): Promise<boolean> {
   return (result.rowCount ?? 0) > 0;
 }
 
+export async function activateFlaggedAddress(id: string): Promise<boolean> {
+  const result = await query(
+    `UPDATE flagged_addresses SET is_active = TRUE WHERE id = $1 AND is_active = FALSE`,
+    [id]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 export async function exportFlaggedAddresses(): Promise<FlaggedAddressItem[]> {
   const result = await query<FlaggedAddressRow>(
     `${FLAGGED_SELECT} WHERE fa.is_active = TRUE ORDER BY fa.created_at DESC`,

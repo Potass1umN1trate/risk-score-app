@@ -14,6 +14,7 @@ interface FlaggedAddressItem {
   created_by_email: string | null;
   created_at: string;
   is_active: boolean;
+  can_manage: boolean;
 }
 
 interface ListResponse {
@@ -78,6 +79,7 @@ export default function FlaggedAddressesPage() {
   const [importStatus, setImportStatus] = useState<string | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [deactivating, setDeactivating] = useState<string | null>(null);
+  const [activating, setActivating] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const buildUrl = useCallback((p: number) => {
@@ -135,6 +137,27 @@ export default function FlaggedAddressesPage() {
       alert("Failed to deactivate.");
     } finally {
       setDeactivating(null);
+    }
+  }
+
+  async function handleActivate(id: string) {
+    setActivating(id);
+    try {
+      const res = await fetch(`/api/flagged-addresses/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: true }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        alert((body as { error?: string }).error ?? "Failed to activate.");
+        return;
+      }
+      fetchList(page);
+    } catch {
+      alert("Failed to activate.");
+    } finally {
+      setActivating(null);
     }
   }
 
@@ -333,21 +356,33 @@ export default function FlaggedAddressesPage() {
                     </td>
                     <td>
                       <div style={{ display: "flex", gap: "0.4rem" }}>
-                        <Link
-                          href={`/flagged-addresses/${item.id}`}
-                          className="btn btn-secondary"
-                          style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem" }}
-                        >
-                          Edit
-                        </Link>
-                        {item.is_active && (
+                        {item.can_manage && item.is_active && (
+                          <>
+                            <Link
+                              href={`/flagged-addresses/${item.id}`}
+                              className="btn btn-secondary"
+                              style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem" }}
+                            >
+                              Edit
+                            </Link>
+                            <button
+                              className="btn"
+                              style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem", background: "var(--color-high)" }}
+                              onClick={() => handleDeactivate(item.id)}
+                              disabled={deactivating === item.id}
+                            >
+                              {deactivating === item.id ? "…" : "Deactivate"}
+                            </button>
+                          </>
+                        )}
+                        {item.can_manage && !item.is_active && (
                           <button
-                            className="btn"
-                            style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem", background: "var(--color-high)" }}
-                            onClick={() => handleDeactivate(item.id)}
-                            disabled={deactivating === item.id}
+                            className="btn btn-secondary"
+                            style={{ fontSize: "0.78rem", padding: "0.2rem 0.6rem" }}
+                            onClick={() => handleActivate(item.id)}
+                            disabled={activating === item.id}
                           >
-                            {deactivating === item.id ? "…" : "Deactivate"}
+                            {activating === item.id ? "…" : "Activate"}
                           </button>
                         )}
                       </div>

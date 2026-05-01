@@ -34,7 +34,7 @@
 - [x] Middleware and RBAC updated — `/history/:path*` added to middleware matcher; `requiredRoleForPath` returns `"user"` for `/history` and `/history/*`; unauthenticated page requests redirect to `/login`; unauthenticated API requests return JSON 401
 - [x] Dashboard and nav updated — "Analysis history" card added to `/dashboard`; "History" link added to global nav for authenticated users
 
-- [x] Audit logging — `logAuditEvent()` in `lib/db.ts` writes to `audit_logs` with best-effort fire-and-forget (errors swallowed, never thrown into the main flow); `userId` accepts `string | null`; `actor_role` stores the nullable role snapshot of the actor (`user`, `moderator`, `admin`) at event creation; historical/system/unknown-actor events may have `actor_role=NULL`; no passwords, hashes, tokens, or secrets are ever written to `details_json`; new events where role is purely actor identity do not store `role` in `details_json`; target-role details remain explicit as `old_role`/`new_role` or target metadata where needed; implemented events: `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_BLOCKED`, `USER_UNBLOCKED`, `USER_DELETED`, `NETWORK_CONFIG_CHANGED` (admin actions); `USER_REGISTERED` (self-registration, userId = new user's id); `RUN_ANALYSIS` (all roles, on successful upstream 200); `FLAGGED_ADDRESS_CREATED`, `FLAGGED_ADDRESS_UPDATED`, `FLAGGED_ADDRESS_DEACTIVATED`, `FLAGGED_ADDRESS_IMPORT`, `FLAGGED_ADDRESS_EXPORT` (moderator/admin flagged-address flows); `LOGIN_SUCCESS`, `LOGIN_FAILURE` (reason is `wrong_password` | `blocked` | `missing_hash`; userId and actor_role are null when user not found), and `OAUTH_LOGIN_SUCCESS`; auth-flow logging is in `web-app/auth.ts` `authorize()` and `signIn` callback; all three auth events are fire-and-forget; historical events before Phase 3 have no login audit rows
+- [x] Audit logging — `logAuditEvent()` in `lib/db.ts` writes to `audit_logs` with best-effort fire-and-forget (errors swallowed, never thrown into the main flow); `userId` accepts `string | null`; `actor_role` stores the nullable role snapshot of the actor (`user`, `moderator`, `admin`) at event creation; historical/system/unknown-actor events may have `actor_role=NULL`; no passwords, hashes, tokens, or secrets are ever written to `details_json`; new events where role is purely actor identity do not store `role` in `details_json`; target-role details remain explicit as `old_role`/`new_role` or target metadata where needed; implemented events: `USER_CREATED`, `USER_ROLE_CHANGED`, `USER_BLOCKED`, `USER_UNBLOCKED`, `USER_DELETED`, `NETWORK_CONFIG_CHANGED` (admin actions); `USER_REGISTERED` (self-registration, userId = new user's id); `RUN_ANALYSIS` (all roles, on successful upstream 200); `FLAGGED_ADDRESS_CREATED`, `FLAGGED_ADDRESS_UPDATED`, `FLAGGED_ADDRESS_DEACTIVATED`, `FLAGGED_ADDRESS_REACTIVATED`, `FLAGGED_ADDRESS_IMPORT`, `FLAGGED_ADDRESS_EXPORT` (moderator/admin flagged-address flows); `LOGIN_SUCCESS`, `LOGIN_FAILURE` (reason is `wrong_password` | `blocked` | `missing_hash`; userId and actor_role are null when user not found), and `OAUTH_LOGIN_SUCCESS`; auth-flow logging is in `web-app/auth.ts` `authorize()` and `signIn` callback; all three auth events are fire-and-forget; historical events before Phase 3 have no login audit rows
 - [x] Audit log viewer (admin-only) — `GET /api/admin/audit-logs` response items include `actor_role`; supported filters: `action` (exact), `userId` (exact), `email` (ILIKE substring on joined users.email), `role` (matches `audit_logs.actor_role`; `details_json.role` is not used for actor-role filtering), `entity` (exact), `dateFrom` (inclusive), `dateTo` (exclusive; date-only `YYYY-MM-DD` strings are normalized to end-of-day `T23:59:59.999Z` in the route handler); old rows with `actor_role=NULL` show a dash and do not match role filters; `page` + `limit` (default 20, max 100); `/admin/audit-logs` page has a filter bar with email search, role select, event-type select, dateFrom/dateTo date inputs plus a dedicated Role column; Details rendering hides a legacy `role` key but keeps `old_role`/`new_role`; viewer remains admin-only; filter changes reset to page 1; empty state updated to say "user and admin actions" instead of "admin actions only"
 
 ## NOT Implemented ❌
@@ -43,8 +43,6 @@
 - [ ] Admin: system settings for default analysis parameters
 - [ ] Web-app container/k8s deployment and internal connection to analytics-service
 - [ ] Add padding to "Sign In" button
-- [ ] Fix: analysis do not take into consideration that addresses added to flagged-address list affect scoring
-- [ ] Add activate button for flagged-address records instead of only deactivate; currently once a record is deactivated it cannot be reactivated, even by admin
 
 ---
 
@@ -209,6 +207,11 @@ On non-200 response from analytics-service, web-app must branch UI behavior by `
   - moderator can deactivate only records where `created_by_user_id = current_user.id`;
   - admin can deactivate any record.
 - Deactivation is soft delete / inactive status, not physical deletion.
+- Reactivate:
+  - reactivation sets `is_active = TRUE`;
+  - moderator can reactivate only records where `created_by_user_id = current_user.id`;
+  - admin can reactivate any record;
+  - regular user cannot reactivate records.
 - Export flagged-address database to file: admin only.
 - User must not see the full flagged-address database.
 
@@ -236,7 +239,7 @@ Implemented events:
 - `OAUTH_LOGIN_SUCCESS` — all roles (successful GitHub OAuth login; `actor_role` stores the OAuth user's role; `details: {email, provider}`)
 - `USER_REGISTERED` — all users (self-registration; `actor_role: "user"`; `details: {email}`)
 - `RUN_ANALYSIS` — all roles (successful analysis; `actor_role` stores the submitting user's role; `details: {address, network, risk_level, request_id, result_id}`)
-- `FLAGGED_ADDRESS_CREATED` / `FLAGGED_ADDRESS_UPDATED` / `FLAGGED_ADDRESS_DEACTIVATED` — moderator + admin
+- `FLAGGED_ADDRESS_CREATED` / `FLAGGED_ADDRESS_UPDATED` / `FLAGGED_ADDRESS_DEACTIVATED` / `FLAGGED_ADDRESS_REACTIVATED` — moderator + admin
 - `FLAGGED_ADDRESS_IMPORT` / `FLAGGED_ADDRESS_EXPORT` — moderator + admin
 - `USER_CREATED` / `USER_ROLE_CHANGED` / `USER_BLOCKED` / `USER_UNBLOCKED` / `USER_DELETED` — admin
 - `NETWORK_CONFIG_CHANGED` — admin
@@ -296,6 +299,8 @@ The web-app consumes analytics-service REST API for address analysis.
 | Remove duplicates during import | ❌ | ❌ | ✅ |
 | Deactivate own flagged-address records | ❌ | ✅ | ✅ |
 | Deactivate any flagged-address record | ❌ | ❌ | ✅ |
+| Reactivate own flagged-address records | ❌ | ✅ | ✅ |
+| Reactivate any flagged-address record | ❌ | ❌ | ✅ |
 | Export flagged-address database | ❌ | ❌ | ✅ |
 | User management | ❌ | ❌ | ✅ |
 | View audit logs | ❌ | ❌ | ✅ |
@@ -307,7 +312,7 @@ The web-app consumes analytics-service REST API for address analysis.
 
 - ❌ NEVER add roles beyond: `user`, `moderator`, `admin`.
 - ❌ NEVER show full flagged-address database to regular users.
-- ❌ Moderator can ONLY deactivate flagged-address records where `created_by_user_id = current_user.id`.
+- ❌ Moderator can ONLY deactivate/reactivate flagged-address records where `created_by_user_id = current_user.id`.
 - ❌ Admin history = all users; user/moderator history = own only.
 - ❌ NEVER create duplicate users for the same OAuth account.
 - ❌ NEVER expose raw SQL errors, stack traces, secrets, or internal exception text to API responses.

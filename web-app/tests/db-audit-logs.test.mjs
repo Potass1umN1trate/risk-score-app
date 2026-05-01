@@ -432,6 +432,47 @@ describe("getAuditLogs — role filter via actor_role (raw SQL)", () => {
   });
 });
 
+describe("Flagged-address reactivation audit event contract", () => {
+  let reactivatedLogId;
+
+  before(async () => {
+    const { randomUUID } = await import("crypto");
+    reactivatedLogId = randomUUID();
+    await insertAuditLog({
+      id: reactivatedLogId,
+      userId: testUserId,
+      actorRole: "moderator",
+      action: "FLAGGED_ADDRESS_REACTIVATED",
+      entity: "flagged_address",
+      entityId: randomUUID(),
+      details: { address: "1reactivatedtestaddr", network_code: "BTC" },
+    });
+  });
+
+  after(async () => {
+    await pool.query(`DELETE FROM audit_logs WHERE id = $1`, [reactivatedLogId]);
+  });
+
+  test("FLAGGED_ADDRESS_REACTIVATED row is retrievable by action filter", async () => {
+    const rows = await selectAuditLogs({ action: "FLAGGED_ADDRESS_REACTIVATED", userId: testUserId });
+    const found = rows.find((r) => r.id === reactivatedLogId);
+    assert.ok(found, "Should find the reactivation row");
+    assert.equal(found.action, "FLAGGED_ADDRESS_REACTIVATED");
+    assert.equal(found.entity, "flagged_address");
+  });
+
+  test("FLAGGED_ADDRESS_REACTIVATED stores actor_role and safe details", async () => {
+    const rows = await selectAuditLogs({ action: "FLAGGED_ADDRESS_REACTIVATED", userId: testUserId });
+    const found = rows.find((r) => r.id === reactivatedLogId);
+    assert.ok(found);
+    assert.equal(found.actor_role, "moderator");
+    assert.equal(found.details_json.address, "1reactivatedtestaddr");
+    assert.equal(found.details_json.network_code, "BTC");
+    assert.equal("role" in found.details_json, false);
+    assert.equal("password" in found.details_json, false);
+  });
+});
+
 describe("getAuditLogs — date range filter (raw SQL)", () => {
   let pastLogId, futureLogId;
 

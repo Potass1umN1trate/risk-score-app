@@ -11,6 +11,10 @@ import {
 
 export const runtime = "nodejs";
 
+type FlaggedAddressResponseItem = Awaited<ReturnType<typeof getFlaggedAddresses>>["items"][number] & {
+  can_manage: boolean;
+};
+
 function authError(authz: { ok: false; status: 401 | 403 | 500 }) {
   if (authz.status === 500) {
     return NextResponse.json({ error: "Authentication service unavailable" }, { status: 500 });
@@ -45,7 +49,13 @@ export async function GET(req: NextRequest) {
 
   try {
     const { items, total } = await getFlaggedAddresses(filters, limit, offset);
-    return NextResponse.json({ items, total, page, limit });
+    const responseItems: FlaggedAddressResponseItem[] = items.map((item) => ({
+      ...item,
+      can_manage:
+        authz.user.role === "admin" ||
+        item.created_by_user_id === authz.user.id,
+    }));
+    return NextResponse.json({ items: responseItems, total, page, limit });
   } catch {
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }

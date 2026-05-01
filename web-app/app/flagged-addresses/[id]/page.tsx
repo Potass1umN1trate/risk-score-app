@@ -16,6 +16,7 @@ interface FlaggedAddressItem {
   created_by_email: string | null;
   created_at: string;
   is_active: boolean;
+  can_manage: boolean;
 }
 
 interface Network { code: string; name: string; }
@@ -35,6 +36,8 @@ export default function FlaggedAddressDetailPage({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [deactivating, setDeactivating] = useState(false);
   const [deactivateError, setDeactivateError] = useState<string | null>(null);
+  const [activating, setActivating] = useState(false);
+  const [activateError, setActivateError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
@@ -91,6 +94,28 @@ export default function FlaggedAddressDetailPage({
       setDeactivateError("Failed to deactivate.");
     } finally {
       setDeactivating(false);
+    }
+  }
+
+  async function handleActivate() {
+    setActivating(true);
+    setActivateError(null);
+    try {
+      const res = await fetch(`/api/flagged-addresses/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ is_active: true }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        setActivateError((body as { error?: string }).error ?? "Failed to activate.");
+        return;
+      }
+      setRecord((prev) => prev ? { ...prev, is_active: true } : prev);
+    } catch {
+      setActivateError("Failed to activate.");
+    } finally {
+      setActivating(false);
     }
   }
 
@@ -152,7 +177,7 @@ export default function FlaggedAddressDetailPage({
         </div>
       </div>
 
-      {record.is_active && (
+      {record.is_active && record.can_manage && (
         <div className="card">
           <p className="section-title">Update</p>
           <FlaggedAddressForm
@@ -172,7 +197,7 @@ export default function FlaggedAddressDetailPage({
         </div>
       )}
 
-      {record.is_active && (
+      {record.is_active && record.can_manage && (
         <div className="card" style={{ borderColor: "var(--color-high)" }}>
           <p className="section-title" style={{ color: "var(--color-high)" }}>Deactivate</p>
           <p style={{ fontSize: "0.9rem", color: "var(--color-muted)", marginBottom: "1rem" }}>
@@ -186,6 +211,23 @@ export default function FlaggedAddressDetailPage({
             disabled={deactivating}
           >
             {deactivating ? <><span className="spinner" />Deactivating…</> : "Deactivate address"}
+          </button>
+        </div>
+      )}
+
+      {!record.is_active && record.can_manage && (
+        <div className="card">
+          <p className="section-title">Activate</p>
+          <p style={{ fontSize: "0.9rem", color: "var(--color-muted)", marginBottom: "1rem" }}>
+            Restores this record so the address is flagged in future analyses.
+          </p>
+          {activateError && <div className="alert error" style={{ marginBottom: "1rem" }}>{activateError}</div>}
+          <button
+            className="btn"
+            onClick={handleActivate}
+            disabled={activating}
+          >
+            {activating ? <><span className="spinner" />Activating…</> : "Activate address"}
           </button>
         </div>
       )}

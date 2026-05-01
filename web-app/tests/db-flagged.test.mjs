@@ -54,6 +54,14 @@ async function getRecord(id) {
   return r.rows[0] ?? null;
 }
 
+async function activateFlaggedAddress(id) {
+  const result = await query(
+    "UPDATE flagged_addresses SET is_active = TRUE WHERE id = $1 AND is_active = FALSE",
+    [id]
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
 // ─── Setup: create a test user ────────────────────────────────────────────────
 
 let testUserId;
@@ -165,6 +173,36 @@ test("deactivate: already-inactive record → 0 rows updated", { skip: SKIP }, a
     [id]
   );
   assert.equal(result.rowCount, 0);
+});
+
+test("activateFlaggedAddress: changes is_active FALSE -> TRUE", { skip: SKIP }, async () => {
+  const addr = `react${randomUUID().replace(/-/g, "").slice(0, 16)}`;
+  const id = await createRecord("BTC", addr, "scam", testUserId);
+  createdIds.push(id);
+
+  await query("UPDATE flagged_addresses SET is_active = FALSE WHERE id = $1", [id]);
+  const activated = await activateFlaggedAddress(id);
+  assert.equal(activated, true);
+
+  const row = await getRecord(id);
+  assert.equal(row.is_active, true);
+});
+
+test("activateFlaggedAddress: nonexistent id returns false", { skip: SKIP }, async () => {
+  const activated = await activateFlaggedAddress(randomUUID());
+  assert.equal(activated, false);
+});
+
+test("activateFlaggedAddress: already-active record returns false", { skip: SKIP }, async () => {
+  const addr = `actv${randomUUID().replace(/-/g, "").slice(0, 17)}`;
+  const id = await createRecord("ETH", addr, "phishing", testUserId);
+  createdIds.push(id);
+
+  const activated = await activateFlaggedAddress(id);
+  assert.equal(activated, false);
+
+  const row = await getRecord(id);
+  assert.equal(row.is_active, true);
 });
 
 test("list with network filter: returns only matching network records", { skip: SKIP }, async () => {

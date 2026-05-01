@@ -43,6 +43,10 @@ function checkOwnership(record, user) {
   return record.created_by_user_id === user.id;
 }
 
+function canManage(record, user) {
+  return user.role === "admin" || record.created_by_user_id === user.id;
+}
+
 // Mirrors CSV escaping logic from export route
 function escapeCsvField(v) {
   const s = v == null ? "" : String(v);
@@ -187,6 +191,110 @@ test("ownership: moderator cannot modify system record (null created_by)", () =>
   const record = { created_by_user_id: null };
   const mod = { id: "mod-id", role: "moderator" };
   assert.equal(checkOwnership(record, mod), false);
+});
+
+// ─── Reactivation route logic tests ──────────────────────────────────────────
+
+function parseActivationPatchBody(body) {
+  if (!("is_active" in body)) return { kind: "not_activation" };
+  if (Object.keys(body).length !== 1) {
+    return { kind: "error", status: 400, error: "Activation cannot be combined with other updates" };
+  }
+  if (body.is_active !== true) {
+    return { kind: "error", status: 400, error: "Use DELETE to deactivate records" };
+  }
+  return { kind: "activate" };
+}
+
+function activationRouteOutcome({ record, user, activated }) {
+  if (!record) return { status: 404, audit: false, body: { error: "Not found" } };
+  if (!canManage(record, user)) return { status: 403, audit: false, body: { error: "Forbidden" } };
+  if (!activated) {
+    return { status: 404, audit: false, body: { error: "Record not found or already active" } };
+  }
+  return { status: 200, audit: true, body: { ok: true } };
+}
+
+test("reactivation: PATCH { is_active: true } is accepted as activation intent", () => {
+  assert.deepEqual(parseActivationPatchBody({ is_active: true }), { kind: "activate" });
+});
+
+test("reactivation: PATCH { is_active: false } returns 400", () => {
+  const r = parseActivationPatchBody({ is_active: false });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /deactivate/i);
+});
+
+test("reactivation: PATCH combining is_active with edit fields returns 400", () => {
+  const r = parseActivationPatchBody({ is_active: true, comment: "note" });
+  assert.equal(r.status, 400);
+  assert.match(r.error, /combined/i);
+});
+
+test("reactivation: moderator can reactivate own inactive record", () => {
+  const r = activationRouteOutcome({
+    record: { created_by_user_id: "mod-id" },
+    user: { id: "mod-id", role: "moderator" },
+    activated: true,
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.audit, true);
+});
+
+test("reactivation: moderator cannot reactivate another user's record", () => {
+  const r = activationRouteOutcome({
+    record: { created_by_user_id: "other-id" },
+    user: { id: "mod-id", role: "moderator" },
+    activated: true,
+  });
+  assert.equal(r.status, 403);
+  assert.equal(r.audit, false);
+});
+
+test("reactivation: moderator cannot reactivate null-owner/system record", () => {
+  const r = activationRouteOutcome({
+    record: { created_by_user_id: null },
+    user: { id: "mod-id", role: "moderator" },
+    activated: true,
+  });
+  assert.equal(r.status, 403);
+  assert.equal(r.audit, false);
+});
+
+test("reactivation: admin can reactivate any inactive record", () => {
+  const r = activationRouteOutcome({
+    record: { created_by_user_id: "other-id" },
+    user: { id: "admin-id", role: "admin" },
+    activated: true,
+  });
+  assert.equal(r.status, 200);
+  assert.equal(r.audit, true);
+});
+
+test("reactivation: unknown id returns 404 and does not audit", () => {
+  const r = activationRouteOutcome({
+    record: null,
+    user: { id: "admin-id", role: "admin" },
+    activated: false,
+  });
+  assert.equal(r.status, 404);
+  assert.equal(r.audit, false);
+});
+
+test("reactivation: already active record returns no-op 404 and does not audit", () => {
+  const r = activationRouteOutcome({
+    record: { created_by_user_id: "admin-id" },
+    user: { id: "admin-id", role: "admin" },
+    activated: false,
+  });
+  assert.equal(r.status, 404);
+  assert.match(r.body.error, /already active/i);
+  assert.equal(r.audit, false);
+});
+
+test("reactivation: regular user denied by auth guard before route logic", () => {
+  const r = authzResponse({ ok: false, status: 403, reason: "forbidden" });
+  assert.equal(r.status, 403);
 });
 
 // ─── Create body validation tests ────────────────────────────────────────────
@@ -395,6 +503,17 @@ function buildFlaggedDeactivatedEvent(userId, role, id, address, network_code) {
   };
 }
 
+function buildFlaggedReactivatedEvent(userId, role, id, address, network_code) {
+  return {
+    userId,
+    action: "FLAGGED_ADDRESS_REACTIVATED",
+    actorRole: role,
+    entity: "flagged_address",
+    entityId: id,
+    details: { address, network_code },
+  };
+}
+
 function buildFlaggedImportEvent(userId, role, inserted, skipped, error_count) {
   return {
     userId,
@@ -462,6 +581,17 @@ describe("Flagged-address audit event shapes", () => {
     assert.equal("role" in e.details, false);
   });
 
+  test("FLAGGED_ADDRESS_REACTIVATED event captures address and network_code", () => {
+    const e = buildFlaggedReactivatedEvent(
+      "admin-1", "admin", "fa-uuid", "1BoatSLRHtKNngkdXEeobR76b53LETtpyT", "BTC"
+    );
+    assert.equal(e.action, "FLAGGED_ADDRESS_REACTIVATED");
+    assert.equal(e.details.address, "1BoatSLRHtKNngkdXEeobR76b53LETtpyT");
+    assert.equal(e.details.network_code, "BTC");
+    assert.equal(e.actorRole, "admin");
+    assert.equal("role" in e.details, false);
+  });
+
   test("FLAGGED_ADDRESS_IMPORT event captures inserted, skipped, error_count", () => {
     const e = buildFlaggedImportEvent("admin-1", "admin", 10, 2, 1);
     assert.equal(e.action, "FLAGGED_ADDRESS_IMPORT");
@@ -496,6 +626,15 @@ describe("Flagged-address audit event shapes", () => {
     const updated = null;
     let auditCalled = false;
     if (updated !== null) {
+      auditCalled = true;
+    }
+    assert.equal(auditCalled, false);
+  });
+
+  test("failed reactivation should not produce an audit event", () => {
+    const activated = false;
+    let auditCalled = false;
+    if (activated) {
       auditCalled = true;
     }
     assert.equal(auditCalled, false);
