@@ -4,6 +4,11 @@ import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 import { use } from "react";
 import { ResultPanel, type ResultData } from "@/components/ResultPanel";
+import {
+  buildAnalysisExportFilename,
+  buildAnalysisHtmlExport,
+  buildAnalysisJsonExport,
+} from "@/lib/reportExport";
 
 export default function HistoryDetailPage({
   params,
@@ -46,15 +51,32 @@ export default function HistoryDetailPage({
     fetchDetail();
   }, [fetchDetail]);
 
-  function handleExport() {
-    if (!result) return;
-    const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+  function downloadExport(content: string, filename: string, type: string) {
+    const blob = new Blob([content], { type });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `analysis-${result.address}-${result.network}-${result.result_id.slice(0, 8)}.json`;
+    a.download = filename;
     a.click();
     URL.revokeObjectURL(url);
+  }
+
+  function handleJsonExport() {
+    if (!result) return;
+    downloadExport(
+      buildAnalysisJsonExport(result),
+      buildAnalysisExportFilename(result, "json"),
+      "application/json"
+    );
+  }
+
+  function handleHtmlExport() {
+    if (!result) return;
+    downloadExport(
+      buildAnalysisHtmlExport(result),
+      buildAnalysisExportFilename(result, "html"),
+      "text/html"
+    );
   }
 
   return (
@@ -65,9 +87,14 @@ export default function HistoryDetailPage({
         </Link>
         <h1 style={{ flex: 1 }}>Analysis Detail</h1>
         {result && (
-          <button className="btn" onClick={handleExport} style={{ fontSize: "0.85rem" }}>
-            Export JSON
-          </button>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button className="btn" onClick={handleJsonExport} style={{ fontSize: "0.85rem" }}>
+              Export JSON
+            </button>
+            <button className="btn" onClick={handleHtmlExport} style={{ fontSize: "0.85rem" }}>
+              Export HTML
+            </button>
+          </div>
         )}
       </div>
 
