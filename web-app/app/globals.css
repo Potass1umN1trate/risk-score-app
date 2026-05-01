@@ -168,6 +168,9 @@ h1, h2, h3 {
   flex-direction: column;
   gap: 0.35rem;
 }
+.auth-card form .form-group {
+  margin-bottom: 1rem;
+}
 .form-group.full {
   grid-column: 1 / -1;
 }
