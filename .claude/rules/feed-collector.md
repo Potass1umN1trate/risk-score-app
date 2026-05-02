@@ -2,7 +2,7 @@
 
 **Stack**: Python 3.12, asyncpg
 **Role**: Automated population of flagged_addresses from external sources
-**Target Runtime**: Kubernetes CronJob (manifest not implemented yet; namespace risk-score-app)
+**Target Runtime**: Kubernetes CronJob (namespace `risk-score-app`; manifests in `k8s/feed-collector/`)
 
 ---
 
@@ -31,9 +31,22 @@
   - **`feed_sources` must contain an active row for `source_code` before DB writes occur.** If the row is missing or inactive, the pipeline returns an error result immediately without fetching records.
   - Verified (2026-05-02): dry-run runs cleanly from repo root and from `feed_collector/` (`fetched=3 normalized=2 skipped=1 dry_run=True`); config raises `ValidationError` when `dry_run=False` and `database_url=None`; 133 feed collector tests pass; 19 integration tests are present and skipped unless `TEST_DATABASE_URL` is set.
 
+## Kubernetes Deployment ✅
+- **Dockerfile**: `feed_collector/Dockerfile` — `python:3.12-slim`, WORKDIR `/app`, build context is repo root; CMD `python feed_collector/main.py --no-dry-run`; no `.env` files copied into image. Must be built with `--platform linux/arm64` for this k3s node; the multi-platform OCI index form does not import correctly via `k3s ctr images import`.
+- **CronJob**: `k8s/feed-collector/cronjob.yaml` — `schedule: "0 2 * * *"` (daily 02:00 UTC), `concurrencyPolicy: Forbid`, `backoffLimit: 2`, `activeDeadlineSeconds: 1800`, `restartPolicy: OnFailure`, `successfulJobsHistoryLimit: 3`, `failedJobsHistoryLimit: 3`; resources requests 50m CPU/512Mi memory, limits 200m CPU/2Gi memory. Memory limit is 2Gi because the OFAC SDN Advanced XML is ~124MB and Python's `ElementTree.fromstring()` DOM parse requires ~1.5Gi working memory.
+- **ConfigMap**: `k8s/feed-collector/configmap.yaml` — non-secret config: `ENABLED_SOURCES=ofac`, `DRY_RUN=false`, `LOG_LEVEL=INFO`, OFAC SLS settings.
+- **Secret example**: `k8s/feed-collector/secret.yaml.example` — placeholder only; copy to `secret.yaml`, fill `DATABASE_URL`, never commit `secret.yaml`.
+- **`k8s/feed-collector/secret.yaml` is gitignored** via `.gitignore` entry `k8s/feed-collector/secret.yaml`. The `.gitignore` pattern for `.env*` does not cover `.yaml` files.
+- **Secret creation**: create `feed-collector-secret` via kubectl by piping DATABASE_URL from the existing `analytics-secret`: `kubectl -n risk-score-app get secret analytics-secret -o jsonpath='{.data.DATABASE_URL}' | base64 -d | xargs -I{} kubectl -n risk-score-app create secret generic feed-collector-secret --from-literal=DATABASE_URL={} --dry-run=client -o yaml | kubectl apply -f -`
+- **README**: `k8s/feed-collector/README.md` — docker build, secret setup, manifest apply, manual trigger, log commands, source switching guide.
+- Default CronJob source is **OFAC** — official, no API key, maps to `sanctions`.
+- Chainabuse remains optional; requires `CHAINABUSE_API_KEY` in Secret.
+- ScamSniffer is an alternative no-key source; change `ENABLED_SOURCES=scamsniffer` in ConfigMap.
+- **Live k3s staging smoke verified (2026-05-02)**: Image built, imported into k3s containerd, ConfigMap and Secret applied, CronJob deployed. Manual job `feed-collector-smoke-1777734247` completed successfully: `fetched=100 normalized=100 skipped=0 persisted=100 evidence_inserted=55 duplicates=45 record_errors=0 source_errors=0`. DB verified: `feed_sources.ofac` has `last_success_at` set, `last_error=NULL`; 55 `flagged_address_sources` rows and 55 `flagged_addresses` rows present with network TRX/ETH/BNB and `risk_category=sanctions`.
+- **OFAC SLS redirect fix**: `feed_collector/app/sources/ofac.py` `_download_xml()` uses `follow_redirects=True` in the `httpx.AsyncClient` constructor. The OFAC SLS download endpoint returns HTTP 302 to a signed S3 URL; without this flag the adapter raised `OfacSourceError: OFAC SLS download failed with status 302`.
+- **OFAC Advanced XML FeatureTypeID fix**: `_records_from_xml` builds a `FeatureTypeID → type text` map from the `ReferenceValueSets` section and passes it to `_digital_currency_pairs`. The Advanced XML encodes Feature type as a `FeatureTypeID` attribute (e.g. `FeatureTypeID="992"`) referencing a lookup table rather than inline text. Without this fix the parser found 0 records despite successfully downloading the XML.
+
 ## NOT Implemented ❌
-- [ ] Kubernetes CronJob manifest for feed-collector (`k8s/feed-collector/` is empty)
-- [ ] Kubernetes Secret manifest for Chainabuse/API credentials
 - [ ] Full multi-source orchestration in runtime (`ENABLED_SOURCES` may be comma-separated, but only the first source is executed)
 - [ ] Retry/backoff for source HTTP/API failures
 - [ ] Real source integrations other than Chainabuse, ScamSniffer address blacklist, and OFAC SDN digital currency addresses: TRM Sanctions, BitcoinAbuse, CryptoScamDB
@@ -41,7 +54,6 @@
 - [ ] OFAC `/changes/latest` or `/changes/history` incremental diff support
 - [ ] ScamSniffer domain blacklist import
 - [ ] Full per-network address regex validation in normalizer (currently only whitespace-strip + ETH/BNB lowercase)
-- [ ] Docker container / Dockerfile for feed-collector
 
 ---
 

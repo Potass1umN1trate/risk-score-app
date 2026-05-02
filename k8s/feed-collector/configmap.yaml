@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: feed-collector-config
+  namespace: risk-score-app
+data:
+  ENABLED_SOURCES: "ofac"
+  DRY_RUN: "false"
+  LOG_LEVEL: "INFO"
+  DUMMY_INITIAL_LIMIT: "100"
+  OFAC_BASE_URL: "https://sanctionslistservice.ofac.treas.gov"
+  OFAC_SDN_FILENAME: "SDN_ADVANCED.XML"
+  OFAC_TIMEOUT_SECONDS: "20"
+  OFAC_USE_ALIVE_CHECK: "true"

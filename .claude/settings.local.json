@@ -141,7 +141,20 @@
       "Bash(node --test tests/)",
       "Bash(node --test tests/api-analyze-audit-logic.test.mjs tests/api-admin-audit-logs-logic.test.mjs tests/api-flagged-logic.test.mjs tests/rbac.test.mjs tests/api-history-logic.test.mjs tests/export-ui.test.mjs)",
       "Bash(node --test tests/api-auth-audit-logic.test.mjs)",
-      "Bash(node --test tests/api-auth-audit-logic.test.mjs tests/api-analyze-audit-logic.test.mjs tests/api-admin-audit-logs-logic.test.mjs tests/api-flagged-logic.test.mjs tests/rbac.test.mjs tests/api-history-logic.test.mjs tests/export-ui.test.mjs tests/auth-config.test.mjs tests/api-oauth-flow.test.mjs)"
+      "Bash(node --test tests/api-auth-audit-logic.test.mjs tests/api-analyze-audit-logic.test.mjs tests/api-admin-audit-logs-logic.test.mjs tests/api-flagged-logic.test.mjs tests/rbac.test.mjs tests/api-history-logic.test.mjs tests/export-ui.test.mjs tests/auth-config.test.mjs tests/api-oauth-flow.test.mjs)",
+      "Bash(python3 feed_collector/main.py --dry-run)",
+      "Bash(python3 -m pytest feed_collector/tests/ -q --tb=short)",
+      "Bash(kubectl apply *)",
+      "Bash(git check-ignore *)",
+      "Bash(kubectl -n risk-score-app get secret analytics-secret -o jsonpath='{.data.DATABASE_URL}')",
+      "Bash(kubectl wait *)",
+      "Bash(curl -sI \"https://sanctionslistservice.ofac.treas.gov/api/download/SDN_ADVANCED.XML\")",
+      "Bash(curl -sL \"https://sanctionslistservice.ofac.treas.gov/api/download/SDN_ADVANCED.XML\")",
+      "Bash(kubectl describe *)",
+      "Bash(kubectl -n risk-score-app create job feed-collector-debug-1 --image=risk-score-feed-collector:latest --dry-run=client -o yaml)",
+      "Bash(kubectl delete *)",
+      "Bash(python3 -m pytest feed_collector/tests/test_ofac_source.py -q --tb=short)",
+      "Bash(python3 -m pytest feed_collector/tests/test_ofac_source.py::test_feature_type_id_lookup_extracts_address -q --tb=long)"
     ]
   }
 }

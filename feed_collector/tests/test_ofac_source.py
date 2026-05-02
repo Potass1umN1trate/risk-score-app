@@ -380,3 +380,47 @@ async def test_fetch_since_returns_empty_list():
     since = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
     assert await source.fetch_since(since=since, limit=10) == []
+
+
+@pytest.mark.asyncio
+async def test_feature_type_id_lookup_extracts_address():
+    """FeatureTypeID attribute path: live SDN_ADVANCED.XML encodes feature types
+    as FeatureTypeID references into a ReferenceValueSets lookup table rather than
+    inline featureType text. This test locks in _build_feature_type_map and the
+    FeatureTypeID branch in _digital_currency_pairs."""
+    # Mirrors live SDN_ADVANCED.XML structure: FeatureType is defined in
+    # ReferenceValueSets and referenced by ID on the Feature element.
+    # Profile is intentionally omitted so only DistinctParty is a candidate
+    # entity, avoiding the duplicate that arises when both parent and nested
+    # candidate elements produce separate seen_pairs sets.
+    xml = f"""
+    <Sanctions xmlns="https://sanctionslistservice.ofac.treas.gov/api/PublicationPreview/exports/ADVANCED_XML">
+      <ReferenceValueSets>
+        <FeatureTypeValues>
+          <FeatureType ID="345" FeatureTypeGroupID="1">Digital Currency Address - ETH</FeatureType>
+          <FeatureType ID="344" FeatureTypeGroupID="1">Digital Currency Address - XBT</FeatureType>
+        </FeatureTypeValues>
+      </ReferenceValueSets>
+      <DistinctParties>
+        <DistinctParty FixedRef="99001">
+          <Comment>CYBER2</Comment>
+          <Feature ID="77001" FeatureTypeID="345">
+            <FeatureVersion ID="88001" ReliabilityID="1">
+              <VersionDetail DetailTypeID="1432">{_ETH_ADDRESS}</VersionDetail>
+            </FeatureVersion>
+          </Feature>
+        </DistinctParty>
+      </DistinctParties>
+    </Sanctions>
+    """
+    source = _source_for_xml(xml)
+
+    records = await source.fetch_initial(limit=10)
+
+    assert len(records) == 1
+    record = records[0]
+    assert record.address == _ETH_ADDRESS
+    assert record.source_chain == "ETH"
+    assert record.raw_payload["id_type"] == "Digital Currency Address - ETH"
+    assert record.raw_payload["asset"] == "ETH"
+    assert record.source_category == "CYBER2"

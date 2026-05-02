@@ -1,6 +1,46 @@
 # Feed Collector
 
-`feed_collector` is the standalone Python worker for collecting external flagged-address feeds, normalizing source-native records, and eventually writing safe evidence rows to PostgreSQL. The default local path is a dummy dry-run that makes no external API calls and performs no database writes.
+`feed_collector` is the standalone Python worker for collecting external flagged-address feeds, normalizing source-native records, and writing safe evidence rows to PostgreSQL. The default local path is a dummy dry-run that makes no external API calls and performs no database writes.
+
+In production it runs as a Kubernetes CronJob (`k8s/feed-collector/`). See [k8s/feed-collector/README.md](../k8s/feed-collector/README.md) for Docker build, manifest apply, manual trigger, and log commands.
+
+---
+
+## Docker
+
+Build from the **repository root**:
+
+```bash
+docker build -t risk-score-feed-collector:latest -f feed_collector/Dockerfile .
+```
+
+The container runs `python feed_collector/main.py --no-dry-run` by default. Supply `DATABASE_URL` and `ENABLED_SOURCES` as environment variables — do not bake real secrets into the image.
+
+Local `.env` files are not copied into the image. Kubernetes uses ConfigMap (`feed-collector-config`) and Secret (`feed-collector-secret`) instead.
+
+---
+
+## Kubernetes CronJob
+
+Manifests live in `k8s/feed-collector/`:
+
+- `configmap.yaml` — non-secret config (`ENABLED_SOURCES`, `LOG_LEVEL`, OFAC settings)
+- `secret.yaml.example` — placeholder template; copy to `secret.yaml`, fill in `DATABASE_URL`, **never commit `secret.yaml`**
+- `cronjob.yaml` — daily at 02:00 UTC, `concurrencyPolicy: Forbid`, `backoffLimit: 2`, 30-minute deadline
+
+Default source: **OFAC** (no API key required, maps to `sanctions` risk category).
+
+Manual trigger:
+
+```bash
+kubectl create job --from=cronjob/feed-collector feed-collector-manual-$(date +%s) -n risk-score-app
+```
+
+Logs:
+
+```bash
+kubectl logs job/<job-name> -n risk-score-app
+```
 
 ## Default Dummy Dry-Run
 

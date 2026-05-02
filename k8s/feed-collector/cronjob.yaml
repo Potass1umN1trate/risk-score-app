@@ -1,0 +1,34 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: feed-collector
+  namespace: risk-score-app
+spec:
+  schedule: "0 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+            - name: feed-collector
+              image: risk-score-feed-collector:latest
+              imagePullPolicy: IfNotPresent
+              command: ["python", "feed_collector/main.py", "--no-dry-run"]
+              envFrom:
+                - configMapRef:
+                    name: feed-collector-config
+                - secretRef:
+                    name: feed-collector-secret
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: "512Mi"
+                limits:
+                  cpu: "200m"
+                  memory: "2Gi"

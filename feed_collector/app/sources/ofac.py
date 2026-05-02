@@ -77,6 +77,7 @@ class OfacSource(FeedSource):
             async with httpx.AsyncClient(
                 timeout=self._settings.ofac_timeout_seconds,
                 transport=self._transport,
+                follow_redirects=True,
             ) as client:
                 response = await client.get(self._download_url)
         except httpx.TimeoutException as exc:
@@ -92,6 +93,18 @@ class OfacSource(FeedSource):
         return response.content
 
 
+def _build_feature_type_map(root: ET.Element) -> dict[str, str]:
+    """Build FeatureTypeID → type text map from ReferenceValueSets."""
+    result: dict[str, str] = {}
+    for el in root.iter():
+        if _local_name(el.tag) == "FeatureType":
+            ftype_id = el.attrib.get("ID")
+            text = "".join(t for t in el.itertext()).strip()
+            if ftype_id and text:
+                result[ftype_id] = text
+    return result
+
+
 def _records_from_xml(
     xml_bytes: bytes,
     source_url: str,
@@ -102,11 +115,13 @@ def _records_from_xml(
     except ET.ParseError as exc:
         raise OfacSourceError("OFAC SLS XML was malformed.") from exc
 
+    feature_type_map = _build_feature_type_map(root)
+
     records: list[RawFeedRecord] = []
     for entity in _candidate_entity_elements(root):
         context = _entity_context(entity)
         seen_pairs: set[tuple[str, str]] = set()
-        for id_type, address in _digital_currency_pairs(entity):
+        for id_type, address in _digital_currency_pairs(entity, feature_type_map):
             pair_key = (id_type.strip().upper(), address.strip())
             if pair_key in seen_pairs:
                 continue
@@ -162,9 +177,23 @@ def _entity_context(entity: ET.Element) -> dict[str, Any]:
     }
 
 
-def _digital_currency_pairs(entity: ET.Element) -> list[tuple[str, str]]:
+def _digital_currency_pairs(
+    entity: ET.Element,
+    feature_type_map: dict[str, str] | None = None,
+) -> list[tuple[str, str]]:
     pairs: list[tuple[str, str]] = []
     for element in entity.iter():
+        # For Feature elements in Advanced XML: resolve type via FeatureTypeID attribute
+        if _normalize_name(_local_name(element.tag)) == "feature" and feature_type_map:
+            ftype_id = element.attrib.get("FeatureTypeID")
+            if ftype_id:
+                type_text = feature_type_map.get(ftype_id)
+                if type_text and _asset_from_type(type_text) is not None:
+                    value = _value_text(element)
+                    if value is not None:
+                        pairs.append((type_text, value))
+                    continue
+
         if not _could_hold_digital_identifier(element):
             continue
 
