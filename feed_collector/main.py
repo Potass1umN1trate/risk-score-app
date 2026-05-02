@@ -13,6 +13,7 @@ import logging
 import sys
 
 from app.config import FeedCollectorSettings
+from app.error_sanitizer import sanitize_error
 from app.pipeline import run_pipeline
 from app.source_base import FeedSource
 from app.sources.chainabuse import ChainabuseSource
@@ -56,9 +57,13 @@ async def _main(dry_run: bool) -> int:
     else:
         import asyncpg
 
-        pool = await asyncpg.create_pool(
-            settings.database_url, min_size=1, max_size=3
-        )
+        try:
+            pool = await asyncpg.create_pool(
+                settings.database_url, min_size=1, max_size=3
+            )
+        except Exception as exc:
+            print(f"Database pool creation failed: {sanitize_error(exc)}")
+            return 1
         try:
             result = await run_pipeline(source, settings, db_pool=pool)
         finally:
@@ -69,6 +74,11 @@ async def _main(dry_run: bool) -> int:
         f"fetched={result.fetched_count} "
         f"normalized={result.normalized_count} "
         f"skipped={result.skipped_count} "
+        f"persisted={result.persisted_count} "
+        f"evidence_inserted={result.evidence_inserted_count} "
+        f"duplicates={result.duplicate_count} "
+        f"record_errors={result.record_error_count} "
+        f"source_errors={result.source_error_count} "
         f"dry_run={result.dry_run}"
     )
 

@@ -40,6 +40,29 @@ Dry-run mode has no database sync state, so it always calls `fetch_initial` and 
 
 Chainabuse supports incremental `fetch_since(last_success_at)` in non-dry-run repeat runs. ScamSniffer and OFAC are static/full refresh sources for now, so repeat DB runs continue to call `fetch_initial` with `fetch_mode=repeat_full`. Failed incremental fetches do not fallback to an initial fetch.
 
+## Partial Success and Errors
+
+A source run distinguishes source-level failures from record-level problems.
+
+Source-level failures include unavailable sources, fetch exceptions, malformed whole-source responses raised by an adapter, missing DB pool, and missing/inactive `feed_sources` rows. These failures return a result with `source_error_count=1`; when a feed source row is known, the collector stores a sanitized `last_error` and does not update `last_success_at`.
+
+Record-level problems include deterministic skips such as unsupported source chains/categories, missing DB network/category mappings, and unexpected persistence errors for a single normalized record. The collector continues with remaining records. If fetch succeeds and record processing completes, the run calls `mark_feed_success` and can update `last_success_at` even when `skipped_count` or `record_error_count` is greater than zero.
+
+Duplicate evidence is not an error. Evidence conflicts from `flagged_address_sources` are counted in `duplicate_count`; new evidence rows are counted in `evidence_inserted_count`; normalized records that complete canonical address upsert plus evidence insert/conflict handling are counted in `persisted_count`.
+
+Run results and audit details include bounded, sanitized error samples only. Error messages are collapsed to one line, capped, and redact obvious database URLs, Authorization headers, API keys, tokens, passwords, and secrets. Large XML/JSON-looking response bodies are omitted/truncated safely.
+
+The main counters are:
+
+- `fetched_count`: raw source-native records fetched.
+- `normalized_count`: records accepted by source-aware normalization.
+- `skipped_count`: deterministic data-quality skips from normalization or missing DB mappings.
+- `persisted_count`: normalized records that completed DB persistence or duplicate evidence handling.
+- `evidence_inserted_count`: newly inserted evidence rows.
+- `duplicate_count`: evidence rows skipped by conflict/deduplication.
+- `record_error_count`: unexpected per-record processing exceptions.
+- `source_error_count`: source-level failure flag, `0` or `1`.
+
 ## Chainabuse Smoke Run With `.env`
 
 To run a safe manual smoke check against Chainabuse `GET /v0/reports`:
@@ -74,7 +97,7 @@ In non-dry-run mode, Chainabuse uses `fetch_initial` for the first successful DB
 Expected safe output shape:
 
 ```text
-source=chainabuse fetched=<n> normalized=<n> skipped=<n> dry_run=True
+source=chainabuse fetched=<n> normalized=<n> skipped=<n> persisted=<n> evidence_inserted=<n> duplicates=<n> record_errors=<n> source_errors=<n> dry_run=True
 ```
 
 `fetched=0` can be valid depending on the API response and configured filters.

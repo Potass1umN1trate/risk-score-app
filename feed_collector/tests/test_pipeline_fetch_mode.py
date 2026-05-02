@@ -202,10 +202,11 @@ async def test_fetch_since_failure_does_not_fallback_to_initial(monkeypatch):
     assert result.normalized_count == 0
     assert len(result.errors) == 1
     assert "RuntimeError" in result.errors[0]
+    assert result.source_error_count == 1
     assert calls["failure"] == [
         (
             "ffffffff-dead-beef-cafe-000000000001",
-            "Fetch failed for source 'dummy': RuntimeError",
+            "Fetch failed for source 'dummy': RuntimeError: source rejected since",
         )
     ]
     assert calls["success"] == []

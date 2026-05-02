@@ -1,8 +1,9 @@
 import logging
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .config import FeedCollectorSettings
+from .error_sanitizer import sanitize_error
 from .models import FeedRunResult, FeedSourceConfig, NormalizedFlaggedAddress
 from .normalizer import normalize_feed_record
 from .source_base import FeedSource
@@ -11,25 +12,34 @@ if TYPE_CHECKING:
     import asyncpg
 
 logger = logging.getLogger(__name__)
+_MAX_ERROR_SAMPLES = 10
+
+
+def _append_error_sample(errors: list[str], message: object) -> None:
+    if len(errors) < _MAX_ERROR_SAMPLES:
+        errors.append(sanitize_error(message))
 
 
 def _normalize_records(
     source_code: str,
     raw_records: list,
-) -> tuple[list[NormalizedFlaggedAddress], list[str]]:
+) -> tuple[list[NormalizedFlaggedAddress], int, list[str]]:
     normalized: list[NormalizedFlaggedAddress] = []
     errors: list[str] = []
+    skipped_count = 0
 
     for record in raw_records:
         nfa, reason = normalize_feed_record(source_code, record)
         if reason is not None:
-            logger.warning(reason)
-            errors.append(reason)
+            skipped_count += 1
+            safe_reason = sanitize_error(reason)
+            logger.warning(safe_reason)
+            _append_error_sample(errors, safe_reason)
             continue
         if nfa is not None:
             normalized.append(nfa)
 
-    return normalized, errors
+    return normalized, skipped_count, errors
 
 
 def _select_fetch_plan(
@@ -56,6 +66,22 @@ async def _fetch_records(
     return await source.fetch_initial(limit=limit)
 
 
+async def _mark_feed_failure_safely(
+    repo: Any,
+    db_pool: Any,
+    feed_source_id: str,
+    error_message: str,
+) -> None:
+    try:
+        await repo.mark_feed_failure(db_pool, feed_source_id, error_message)
+    except Exception as exc:
+        logger.warning(
+            "Failed to mark feed failure for source id %s: %s",
+            feed_source_id,
+            sanitize_error(exc),
+        )
+
+
 async def run_pipeline(
     source: FeedSource,
     settings: FeedCollectorSettings,
@@ -76,7 +102,26 @@ async def _run_dry(
     source: FeedSource,
     settings: FeedCollectorSettings,
 ) -> FeedRunResult:
-    available = await source.check_availability()
+    try:
+        available = await source.check_availability()
+    except Exception as exc:
+        safe_err = sanitize_error(
+            f"Availability check failed for source '{source.source_code}': "
+            f"{sanitize_error(exc)}"
+        )
+        logger.warning("Feed source availability check failed: %s", safe_err)
+        return FeedRunResult(
+            source_code=source.source_code,
+            fetched_count=0,
+            normalized_count=0,
+            skipped_count=0,
+            errors=[safe_err],
+            dry_run=True,
+            fetch_mode="initial",
+            fetch_since=None,
+            source_error_count=1,
+        )
+
     if not available:
         logger.warning("Source %s is unavailable.", source.source_code)
         return FeedRunResult(
@@ -84,30 +129,53 @@ async def _run_dry(
             fetched_count=0,
             normalized_count=0,
             skipped_count=0,
-            errors=[f"Source '{source.source_code}' reported unavailable."],
+            errors=[
+                sanitize_error(f"Source '{source.source_code}' reported unavailable.")
+            ],
             dry_run=True,
             fetch_mode="initial",
             fetch_since=None,
+            source_error_count=1,
         )
 
-    raw_records = await source.fetch_initial(limit=settings.dummy_initial_limit)
+    try:
+        raw_records = await source.fetch_initial(limit=settings.dummy_initial_limit)
+    except Exception as exc:
+        safe_err = sanitize_error(
+            f"Fetch failed for source '{source.source_code}': {sanitize_error(exc)}"
+        )
+        logger.warning("Feed source fetch failed: %s", safe_err)
+        return FeedRunResult(
+            source_code=source.source_code,
+            fetched_count=0,
+            normalized_count=0,
+            skipped_count=0,
+            errors=[safe_err],
+            dry_run=True,
+            fetch_mode="initial",
+            fetch_since=None,
+            source_error_count=1,
+        )
+
     fetched_count = len(raw_records)
 
-    normalized, errors = _normalize_records(source.source_code, raw_records)
+    normalized, skipped_count, errors = _normalize_records(
+        source.source_code, raw_records
+    )
 
     logger.info(
         "Dry-run complete for source '%s': fetched=%d normalized=%d skipped=%d",
         source.source_code,
         fetched_count,
         len(normalized),
-        len(errors),
+        skipped_count,
     )
 
     return FeedRunResult(
         source_code=source.source_code,
         fetched_count=fetched_count,
         normalized_count=len(normalized),
-        skipped_count=len(errors),
+        skipped_count=skipped_count,
         errors=errors,
         dry_run=True,
         fetch_mode="initial",
@@ -128,11 +196,35 @@ async def _run_with_db(
             fetched_count=0,
             normalized_count=0,
             skipped_count=0,
-            errors=["db_pool is required when dry_run=False but was not provided."],
+            errors=[
+                sanitize_error(
+                    "db_pool is required when dry_run=False but was not provided."
+                )
+            ],
             dry_run=False,
+            source_error_count=1,
         )
 
-    feed_source_config = await repo.get_feed_source_by_code(db_pool, source.source_code)
+    try:
+        feed_source_config = await repo.get_feed_source_by_code(
+            db_pool, source.source_code
+        )
+    except Exception as exc:
+        safe_err = sanitize_error(
+            f"DB setup failed for source '{source.source_code}': "
+            f"{sanitize_error(exc)}"
+        )
+        logger.warning("Feed source DB setup failed: %s", safe_err)
+        return FeedRunResult(
+            source_code=source.source_code,
+            fetched_count=0,
+            normalized_count=0,
+            skipped_count=0,
+            errors=[safe_err],
+            dry_run=False,
+            source_error_count=1,
+        )
+
     if feed_source_config is None:
         logger.warning(
             "Source '%s' is not present or not active in feed_sources; skipping DB writes.",
@@ -144,30 +236,73 @@ async def _run_with_db(
             normalized_count=0,
             skipped_count=0,
             errors=[
-                f"Source '{source.source_code}' is not configured or not active "
-                f"in the feed_sources table. Add an active row before running in "
-                f"non-dry-run mode."
+                sanitize_error(
+                    f"Source '{source.source_code}' is not configured or not active "
+                    f"in the feed_sources table. Add an active row before running in "
+                    f"non-dry-run mode."
+                )
             ],
             dry_run=False,
+            source_error_count=1,
         )
 
     feed_source_id = feed_source_config.id
 
-    await repo.mark_feed_attempt(db_pool, feed_source_id)
+    try:
+        await repo.mark_feed_attempt(db_pool, feed_source_id)
+    except Exception as exc:
+        safe_err = sanitize_error(
+            f"DB setup failed for source '{source.source_code}': "
+            f"{sanitize_error(exc)}"
+        )
+        logger.warning("Feed source DB setup failed: %s", safe_err)
+        await _mark_feed_failure_safely(repo, db_pool, feed_source_id, safe_err)
+        return FeedRunResult(
+            source_code=source.source_code,
+            fetched_count=0,
+            normalized_count=0,
+            skipped_count=0,
+            errors=[safe_err],
+            dry_run=False,
+            source_error_count=1,
+        )
 
-    available = await source.check_availability()
+    try:
+        available = await source.check_availability()
+    except Exception as exc:
+        safe_err = sanitize_error(
+            f"Availability check failed for source '{source.source_code}': "
+            f"{sanitize_error(exc)}"
+        )
+        logger.warning("Feed source availability check failed: %s", safe_err)
+        await _mark_feed_failure_safely(repo, db_pool, feed_source_id, safe_err)
+        return FeedRunResult(
+            source_code=source.source_code,
+            fetched_count=0,
+            normalized_count=0,
+            skipped_count=0,
+            errors=[safe_err],
+            dry_run=False,
+            source_error_count=1,
+        )
+
     if not available:
         logger.warning("Source %s is unavailable.", source.source_code)
-        await repo.mark_feed_failure(
-            db_pool, feed_source_id, f"Source '{source.source_code}' reported unavailable."
+        safe_err = sanitize_error(f"Source '{source.source_code}' reported unavailable.")
+        await _mark_feed_failure_safely(
+            repo,
+            db_pool,
+            feed_source_id,
+            safe_err,
         )
         return FeedRunResult(
             source_code=source.source_code,
             fetched_count=0,
             normalized_count=0,
             skipped_count=0,
-            errors=[f"Source '{source.source_code}' reported unavailable."],
+            errors=[safe_err],
             dry_run=False,
+            source_error_count=1,
         )
 
     fetch_mode, fetch_since = _select_fetch_plan(source, feed_source_config)
@@ -180,9 +315,11 @@ async def _run_with_db(
             settings.dummy_initial_limit,
         )
     except Exception as exc:
-        safe_err = f"Fetch failed for source '{source.source_code}': {type(exc).__name__}"
-        logger.exception("Fetch failed for source %s", source.source_code)
-        await repo.mark_feed_failure(db_pool, feed_source_id, safe_err)
+        safe_err = sanitize_error(
+            f"Fetch failed for source '{source.source_code}': {sanitize_error(exc)}"
+        )
+        logger.warning("Feed source fetch failed: %s", safe_err)
+        await _mark_feed_failure_safely(repo, db_pool, feed_source_id, safe_err)
         return FeedRunResult(
             source_code=source.source_code,
             fetched_count=0,
@@ -192,21 +329,30 @@ async def _run_with_db(
             dry_run=False,
             fetch_mode=fetch_mode,
             fetch_since=fetch_since,
+            source_error_count=1,
         )
 
     fetched_count = len(raw_records)
-    normalized, errors = _normalize_records(source.source_code, raw_records)
+    normalized, skipped_count, errors = _normalize_records(
+        source.source_code, raw_records
+    )
+    persisted_count = 0
+    evidence_inserted_count = 0
+    duplicate_count = 0
+    record_error_count = 0
 
-    try:
-        for nfa in normalized:
+    for nfa in normalized:
+        try:
             network_id = await repo.resolve_network_id(db_pool, nfa.network_code)
             if network_id is None:
                 msg = (
                     f"Skipped address '{nfa.address}': "
                     f"network '{nfa.network_code}' not found in DB."
                 )
-                logger.warning(msg)
-                errors.append(msg)
+                safe_msg = sanitize_error(msg)
+                logger.warning(safe_msg)
+                skipped_count += 1
+                _append_error_sample(errors, safe_msg)
                 continue
 
             risk_category_id = await repo.resolve_risk_category_id(
@@ -217,34 +363,33 @@ async def _run_with_db(
                     f"Skipped address '{nfa.address}': "
                     f"risk category '{nfa.risk_category_code}' not found in DB."
                 )
-                logger.warning(msg)
-                errors.append(msg)
+                safe_msg = sanitize_error(msg)
+                logger.warning(safe_msg)
+                skipped_count += 1
+                _append_error_sample(errors, safe_msg)
                 continue
 
             flagged_address_id = await repo.upsert_flagged_address(
                 db_pool, network_id, nfa.address, risk_category_id, nfa.comment
             )
 
-            await repo.insert_flagged_address_source(
+            evidence_inserted = await repo.insert_flagged_address_source(
                 db_pool, flagged_address_id, feed_source_id, nfa
             )
-
-    except Exception as exc:
-        safe_err = (
-            f"DB write failed for source '{source.source_code}': {type(exc).__name__}"
-        )
-        logger.exception("DB write failed for source %s", source.source_code)
-        await repo.mark_feed_failure(db_pool, feed_source_id, safe_err)
-        return FeedRunResult(
-            source_code=source.source_code,
-            fetched_count=fetched_count,
-            normalized_count=len(normalized),
-            skipped_count=len(errors),
-            errors=errors + [safe_err],
-            dry_run=False,
-            fetch_mode=fetch_mode,
-            fetch_since=fetch_since,
-        )
+            if evidence_inserted:
+                evidence_inserted_count += 1
+            else:
+                duplicate_count += 1
+            persisted_count += 1
+        except Exception as exc:
+            record_error_count += 1
+            safe_err = sanitize_error(
+                f"Record failed for source '{source.source_code}' "
+                f"address '{nfa.address}': {sanitize_error(exc)}"
+            )
+            logger.warning("Record failed: %s", safe_err)
+            _append_error_sample(errors, safe_err)
+            continue
 
     await repo.mark_feed_success(db_pool, feed_source_id)
 
@@ -252,18 +397,25 @@ async def _run_with_db(
         source_code=source.source_code,
         fetched_count=fetched_count,
         normalized_count=len(normalized),
-        skipped_count=len(errors),
+        skipped_count=skipped_count,
         errors=errors,
         dry_run=False,
         fetch_mode=fetch_mode,
         fetch_since=fetch_since,
+        persisted_count=persisted_count,
+        evidence_inserted_count=evidence_inserted_count,
+        duplicate_count=duplicate_count,
+        record_error_count=record_error_count,
+        source_error_count=0,
     )
 
     try:
         await repo.write_audit_log(db_pool, feed_source_id, source.source_code, result)
-    except Exception:
-        logger.exception(
-            "Failed to write audit log for source %s (non-fatal)", source.source_code
+    except Exception as exc:
+        logger.warning(
+            "Failed to write audit log for source %s (non-fatal): %s",
+            source.source_code,
+            sanitize_error(exc),
         )
 
     logger.info(
@@ -271,7 +423,7 @@ async def _run_with_db(
         source.source_code,
         fetched_count,
         len(normalized),
-        len(errors),
+        skipped_count,
     )
 
     return result

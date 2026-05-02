@@ -125,6 +125,11 @@ def test_feed_run_result_defaults():
     assert result.dry_run is True
     assert result.fetch_mode is None
     assert result.fetch_since is None
+    assert result.persisted_count == 0
+    assert result.evidence_inserted_count == 0
+    assert result.duplicate_count == 0
+    assert result.record_error_count == 0
+    assert result.source_error_count == 0
 
 
 def test_feed_run_result_with_errors():

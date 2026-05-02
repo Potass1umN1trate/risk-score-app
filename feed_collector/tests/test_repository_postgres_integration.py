@@ -415,6 +415,11 @@ async def test_write_audit_log_inserts_feed_collect_row(pg_pool, dummy_feed_sour
         dry_run=False,
         fetch_mode="repeat_full",
         fetch_since=None,
+        persisted_count=2,
+        evidence_inserted_count=2,
+        duplicate_count=0,
+        record_error_count=0,
+        source_error_count=0,
     )
 
     await repo.write_audit_log(pg_pool, feed_source_id, "dummy", result)
@@ -441,7 +446,12 @@ async def test_write_audit_log_inserts_feed_collect_row(pg_pool, dummy_feed_sour
         assert details["fetched_count"] == 3
         assert details["normalized_count"] == 2
         assert details["skipped_count"] == 1
-        assert details["error_count"] == 1
+        assert details["persisted_count"] == 2
+        assert details["evidence_inserted_count"] == 2
+        assert details["duplicate_count"] == 0
+        assert details["record_error_count"] == 0
+        assert details["source_error_count"] == 0
+        assert details["error_samples"] == ["skipped FAKECHAIN"]
         assert details["dry_run"] is False
         assert details["fetch_mode"] == "repeat_full"
         assert details["fetch_since"] is None

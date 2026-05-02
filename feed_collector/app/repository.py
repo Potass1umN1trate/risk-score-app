@@ -13,17 +13,12 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     import asyncpg
 
+from .error_sanitizer import sanitize_error
 from .models import FeedRunResult, FeedSourceConfig, NormalizedFlaggedAddress
 
 logger = logging.getLogger(__name__)
 
 _MAX_ERROR_LEN = 500
-
-
-def _truncate(text: str, max_len: int = _MAX_ERROR_LEN) -> str:
-    if len(text) <= max_len:
-        return text
-    return text[:max_len] + " … [truncated]"
 
 
 async def get_feed_source_by_code(
@@ -72,7 +67,7 @@ async def mark_feed_failure(
     feed_source_id: str,
     error_message: str,
 ) -> None:
-    safe_msg = _truncate(error_message)
+    safe_msg = sanitize_error(error_message, max_length=_MAX_ERROR_LEN)
     await pool.execute(
         "UPDATE feed_sources SET last_error = $2 WHERE id = $1",
         feed_source_id,
@@ -212,12 +207,20 @@ async def write_audit_log(
         "fetched_count": result.fetched_count,
         "normalized_count": result.normalized_count,
         "skipped_count": result.skipped_count,
-        "error_count": len(result.errors),
+        "persisted_count": result.persisted_count,
+        "evidence_inserted_count": result.evidence_inserted_count,
+        "duplicate_count": result.duplicate_count,
+        "record_error_count": result.record_error_count,
+        "source_error_count": result.source_error_count,
         "dry_run": result.dry_run,
         "fetch_mode": result.fetch_mode,
         "fetch_since": (
             result.fetch_since.isoformat() if result.fetch_since is not None else None
         ),
+        "error_samples": [
+            sanitize_error(error, max_length=_MAX_ERROR_LEN)
+            for error in result.errors[:10]
+        ],
     }
     await pool.execute(
         """

@@ -53,3 +53,8 @@ class FeedRunResult:
     dry_run: bool = True
     fetch_mode: str | None = None
     fetch_since: datetime | None = None
+    persisted_count: int = 0
+    evidence_inserted_count: int = 0
+    duplicate_count: int = 0
+    record_error_count: int = 0
+    source_error_count: int = 0
