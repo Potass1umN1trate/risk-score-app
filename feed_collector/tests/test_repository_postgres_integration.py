@@ -8,6 +8,7 @@ No Docker, k3s, external API, or blockchain dependency.
 import json
 import os
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 import asyncpg
@@ -259,6 +260,7 @@ async def test_insert_flagged_address_source_with_external_id_inserts_once(
             network_code="BTC",
             risk_category_code="scam",
             external_id="ext-001",
+            source_chain="Bitcoin source label",
             source_category="fraud",
             confidence=0.9,
             raw_payload={"note": "test"},
@@ -304,6 +306,7 @@ async def test_insert_flagged_address_source_without_external_id_inserts_once(
             network_code="BTC",
             risk_category_code="scam",
             external_id=None,
+            source_chain="BTC native",
             source_category="fraud",
             confidence=0.7,
         )
@@ -335,12 +338,14 @@ async def test_insert_flagged_address_source_without_external_id_inserts_once(
         )
 
 
-async def test_insert_flagged_address_source_stores_raw_payload(
+async def test_insert_flagged_address_source_stores_evidence_fields(
     pg_pool, dummy_feed_source
 ):
     feed_source_id = dummy_feed_source
     address = f"btc-fas-payload-{uuid.uuid4().hex[:10]}"
     flagged_address_id = await _insert_canonical_address(pg_pool, "BTC", address, "scam")
+    first_seen = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    last_seen = datetime(2026, 1, 2, tzinfo=timezone.utc)
 
     try:
         nfa = NormalizedFlaggedAddress(
@@ -348,21 +353,39 @@ async def test_insert_flagged_address_source_stores_raw_payload(
             network_code="BTC",
             risk_category_code="scam",
             external_id="ext-payload-test",
+            source_chain="Bitcoin native",
+            source_category="source scam",
+            confidence=0.81,
+            trusted=True,
+            checked=False,
+            first_seen=first_seen,
+            last_seen=last_seen,
             raw_payload={"source": "dummy", "note": "payload test"},
         )
         await repo.insert_flagged_address_source(
             pg_pool, flagged_address_id, feed_source_id, nfa
         )
-        raw = await pg_pool.fetchval(
+        row = await pg_pool.fetchrow(
             """
-            SELECT raw_payload_json FROM flagged_address_sources
+            SELECT source_chain, source_category, confidence, trusted, checked,
+                   first_seen, last_seen, raw_payload_json
+            FROM flagged_address_sources
             WHERE flagged_address_id = $1 AND feed_source_id = $2
             """,
             flagged_address_id,
             feed_source_id,
         )
-        assert raw is not None
-        payload = json.loads(raw) if isinstance(raw, str) else raw
+        assert row is not None
+        assert row["source_chain"] == "Bitcoin native"
+        assert row["source_category"] == "source scam"
+        assert float(row["confidence"]) == 0.81
+        assert row["trusted"] is True
+        assert row["checked"] is False
+        assert row["first_seen"] == first_seen
+        assert row["last_seen"] == last_seen
+        raw_payload = row["raw_payload_json"]
+        assert raw_payload is not None
+        payload = json.loads(raw_payload) if isinstance(raw_payload, str) else raw_payload
         assert payload["note"] == "payload test"
     finally:
         await pg_pool.execute(

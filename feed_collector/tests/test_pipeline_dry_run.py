@@ -60,16 +60,19 @@ async def test_pipeline_eth_address_is_lowercased(settings):
     """ETH addresses must be stored in canonical lowercase form."""
     source = DummySource()
     raw_records = await source.fetch_initial(limit=10)
-    eth_raw = next(r for r in raw_records if r.network_code == "ETH")
+    eth_raw = next(r for r in raw_records if r.source_chain == "ETH")
     # The raw record has a mixed-case address
     assert eth_raw.address != eth_raw.address.lower()
 
     result = await run_pipeline(source, settings)
     # Verify normalized count includes ETH; inspect via a second pipeline run
     # with a direct normalizer call to confirm lowercase transformation
-    from app.normalizer import normalize_address
-    normalized_eth = normalize_address("ETH", eth_raw.address)
-    assert normalized_eth == eth_raw.address.lower()
+    from app.normalizer import normalize_feed_record
+
+    normalized_eth, reason = normalize_feed_record(source.source_code, eth_raw)
+    assert reason is None
+    assert normalized_eth is not None
+    assert normalized_eth.address == eth_raw.address.lower()
     assert result.normalized_count == 2
 
 

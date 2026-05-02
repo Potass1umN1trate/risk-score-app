@@ -48,34 +48,36 @@ async def test_fetch_initial_respects_limit():
 async def test_fetch_initial_contains_btc_record():
     source = DummySource()
     records = await source.fetch_initial(limit=10)
-    btc_records = [r for r in records if r.network_code == "BTC"]
+    btc_records = [r for r in records if r.source_chain == "BTC"]
     assert len(btc_records) == 1
     assert btc_records[0].address == "12QeMLzSrB8XH8FvEzPMVoRxVAzTr5XM2y"
+    assert btc_records[0].source_category == "scam"
 
 
 @pytest.mark.asyncio
 async def test_fetch_initial_contains_eth_record():
     source = DummySource()
     records = await source.fetch_initial(limit=10)
-    eth_records = [r for r in records if r.network_code == "ETH"]
+    eth_records = [r for r in records if r.source_chain == "ETH"]
     assert len(eth_records) == 1
     assert "742d35" in eth_records[0].address.lower()
+    assert eth_records[0].source_category == "phishing"
 
 
 @pytest.mark.asyncio
 async def test_fetch_initial_contains_unsupported_network_record():
     source = DummySource()
     records = await source.fetch_initial(limit=10)
-    fake_records = [r for r in records if r.network_code == "FAKECHAIN"]
+    fake_records = [r for r in records if r.source_chain == "FAKECHAIN"]
     assert len(fake_records) == 1
 
 
 @pytest.mark.asyncio
-async def test_fetch_initial_all_have_risk_category_code():
+async def test_fetch_initial_all_have_source_category():
     source = DummySource()
     records = await source.fetch_initial(limit=10)
     for rec in records:
-        assert rec.risk_category_code, f"Missing risk_category_code on record {rec}"
+        assert rec.source_category, f"Missing source_category on record {rec}"
 
 
 @pytest.mark.asyncio

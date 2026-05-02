@@ -14,12 +14,15 @@ class FeedSourceConfig:
 
 @dataclass
 class RawFeedRecord:
-    address: str
-    network_code: str
-    risk_category_code: str
+    address: str | None
+    source_chain: str | None
+    source_category: str | None
     external_id: str | None = None
-    source_category: str | None = None
     confidence: float | None = None
+    trusted: bool | None = None
+    checked: bool | None = None
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
     raw_payload: dict | None = None
 
 
@@ -30,8 +33,13 @@ class NormalizedFlaggedAddress:
     risk_category_code: str
     comment: str | None = None
     external_id: str | None = None
+    source_chain: str | None = None
     source_category: str | None = None
     confidence: float | None = None
+    trusted: bool | None = None
+    checked: bool | None = None
+    first_seen: datetime | None = None
+    last_seen: datetime | None = None
     raw_payload: dict | None = None
 
 

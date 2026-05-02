@@ -39,38 +39,49 @@ def test_feed_source_config_with_timestamps():
 def test_raw_feed_record_required_fields():
     rec = RawFeedRecord(
         address="12QeMLzSrB8XH8FvEzPMVoRxVAzTr5XM2y",
-        network_code="BTC",
-        risk_category_code="scam",
+        source_chain="BTC",
+        source_category="scam",
     )
     assert rec.address == "12QeMLzSrB8XH8FvEzPMVoRxVAzTr5XM2y"
-    assert rec.network_code == "BTC"
-    assert rec.risk_category_code == "scam"
+    assert rec.source_chain == "BTC"
+    assert rec.source_category == "scam"
 
 
 def test_raw_feed_record_optional_fields_default_to_none():
     rec = RawFeedRecord(
         address="12QeMLzSrB8XH8FvEzPMVoRxVAzTr5XM2y",
-        network_code="BTC",
-        risk_category_code="scam",
+        source_chain="BTC",
+        source_category="scam",
     )
     assert rec.external_id is None
-    assert rec.source_category is None
     assert rec.confidence is None
+    assert rec.trusted is None
+    assert rec.checked is None
+    assert rec.first_seen is None
+    assert rec.last_seen is None
     assert rec.raw_payload is None
 
 
 def test_raw_feed_record_all_fields():
+    ts = datetime(2026, 1, 1, tzinfo=timezone.utc)
     rec = RawFeedRecord(
         address="0x742d35cc6634c0532925a3b844bc454e4438f44e",
-        network_code="ETH",
-        risk_category_code="phishing",
-        external_id="ext-001",
+        source_chain="Ethereum",
         source_category="phishing_site",
+        external_id="ext-001",
         confidence=0.85,
+        trusted=True,
+        checked=False,
+        first_seen=ts,
+        last_seen=ts,
         raw_payload={"note": "test"},
     )
     assert rec.external_id == "ext-001"
     assert rec.confidence == 0.85
+    assert rec.trusted is True
+    assert rec.checked is False
+    assert rec.first_seen == ts
+    assert rec.last_seen == ts
 
 
 def test_normalized_flagged_address_required_fields():
@@ -78,6 +89,8 @@ def test_normalized_flagged_address_required_fields():
         address="12QeMLzSrB8XH8FvEzPMVoRxVAzTr5XM2y",
         network_code="BTC",
         risk_category_code="scam",
+        source_chain="Bitcoin",
+        source_category="fraud",
     )
     assert nfa.address == "12QeMLzSrB8XH8FvEzPMVoRxVAzTr5XM2y"
     assert nfa.network_code == "BTC"
@@ -92,8 +105,13 @@ def test_normalized_flagged_address_optional_fields_default_to_none():
     )
     assert nfa.comment is None
     assert nfa.external_id is None
+    assert nfa.source_chain is None
     assert nfa.source_category is None
     assert nfa.confidence is None
+    assert nfa.trusted is None
+    assert nfa.checked is None
+    assert nfa.first_seen is None
+    assert nfa.last_seen is None
 
 
 def test_feed_run_result_defaults():

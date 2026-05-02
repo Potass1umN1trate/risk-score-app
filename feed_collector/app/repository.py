@@ -153,7 +153,7 @@ async def insert_flagged_address_source(
                 confidence, trusted, checked,
                 first_seen, last_seen, raw_payload_json
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, NULL, NULL, NULL, NOW(), $8)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, COALESCE($11::timestamptz, NOW()), $12)
             ON CONFLICT DO NOTHING
             """,
             new_id,
@@ -161,8 +161,12 @@ async def insert_flagged_address_source(
             feed_source_id,
             record.external_id,
             record.source_category,
-            record.network_code,
+            record.source_chain,
             record.confidence,
+            record.trusted,
+            record.checked,
+            record.first_seen,
+            record.last_seen,
             raw_payload_json,
         )
     else:
@@ -175,15 +179,19 @@ async def insert_flagged_address_source(
                 confidence, trusted, checked,
                 first_seen, last_seen, raw_payload_json
             )
-            VALUES ($1, $2, $3, NULL, $4, $5, $6, NULL, NULL, NULL, NOW(), $7)
+            VALUES ($1, $2, $3, NULL, $4, $5, $6, $7, $8, $9, COALESCE($10::timestamptz, NOW()), $11)
             ON CONFLICT DO NOTHING
             """,
             new_id,
             flagged_address_id,
             feed_source_id,
             record.source_category,
-            record.network_code,
+            record.source_chain,
             record.confidence,
+            record.trusted,
+            record.checked,
+            record.first_seen,
+            record.last_seen,
             raw_payload_json,
         )
 

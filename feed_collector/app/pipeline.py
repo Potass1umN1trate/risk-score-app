@@ -3,13 +3,32 @@ from typing import TYPE_CHECKING
 
 from .config import FeedCollectorSettings
 from .models import FeedRunResult, NormalizedFlaggedAddress
-from .normalizer import is_supported_network, normalize_address
+from .normalizer import normalize_feed_record
 from .source_base import FeedSource
 
 if TYPE_CHECKING:
     import asyncpg
 
 logger = logging.getLogger(__name__)
+
+
+def _normalize_records(
+    source_code: str,
+    raw_records: list,
+) -> tuple[list[NormalizedFlaggedAddress], list[str]]:
+    normalized: list[NormalizedFlaggedAddress] = []
+    errors: list[str] = []
+
+    for record in raw_records:
+        nfa, reason = normalize_feed_record(source_code, record)
+        if reason is not None:
+            logger.warning(reason)
+            errors.append(reason)
+            continue
+        if nfa is not None:
+            normalized.append(nfa)
+
+    return normalized, errors
 
 
 async def run_pipeline(
@@ -47,32 +66,7 @@ async def _run_dry(
     raw_records = await source.fetch_initial(limit=settings.dummy_initial_limit)
     fetched_count = len(raw_records)
 
-    normalized: list[NormalizedFlaggedAddress] = []
-    errors: list[str] = []
-
-    for record in raw_records:
-        network = record.network_code.upper()
-        if not is_supported_network(network):
-            msg = (
-                f"Skipped record with address '{record.address}': "
-                f"unsupported network '{record.network_code}'."
-            )
-            logger.warning(msg)
-            errors.append(msg)
-            continue
-
-        canonical_address = normalize_address(network, record.address)
-        normalized.append(
-            NormalizedFlaggedAddress(
-                address=canonical_address,
-                network_code=network,
-                risk_category_code=record.risk_category_code,
-                external_id=record.external_id,
-                source_category=record.source_category,
-                confidence=record.confidence,
-                raw_payload=record.raw_payload,
-            )
-        )
+    normalized, errors = _normalize_records(source.source_code, raw_records)
 
     logger.info(
         "Dry-run complete for source '%s': fetched=%d normalized=%d skipped=%d",
@@ -163,32 +157,7 @@ async def _run_with_db(
         )
 
     fetched_count = len(raw_records)
-    normalized: list[NormalizedFlaggedAddress] = []
-    errors: list[str] = []
-
-    for record in raw_records:
-        network = record.network_code.upper()
-        if not is_supported_network(network):
-            msg = (
-                f"Skipped record with address '{record.address}': "
-                f"unsupported network '{record.network_code}'."
-            )
-            logger.warning(msg)
-            errors.append(msg)
-            continue
-
-        canonical_address = normalize_address(network, record.address)
-        normalized.append(
-            NormalizedFlaggedAddress(
-                address=canonical_address,
-                network_code=network,
-                risk_category_code=record.risk_category_code,
-                external_id=record.external_id,
-                source_category=record.source_category,
-                confidence=record.confidence,
-                raw_payload=record.raw_payload,
-            )
-        )
+    normalized, errors = _normalize_records(source.source_code, raw_records)
 
     try:
         for nfa in normalized:
