@@ -14,7 +14,25 @@ import sys
 
 from app.config import FeedCollectorSettings
 from app.pipeline import run_pipeline
+from app.source_base import FeedSource
+from app.sources.chainabuse import ChainabuseSource
 from app.sources.dummy import DummySource
+
+
+def _select_source(settings: FeedCollectorSettings) -> FeedSource:
+    selected = [
+        item.strip().lower()
+        for item in settings.enabled_sources.split(",")
+        if item.strip()
+    ]
+    source_code = selected[0] if selected else "dummy"
+
+    if source_code == "chainabuse":
+        return ChainabuseSource(settings)
+    if source_code == "dummy":
+        return DummySource()
+
+    raise ValueError(f"Unsupported feed source '{source_code}'.")
 
 
 async def _main(dry_run: bool) -> int:
@@ -25,7 +43,7 @@ async def _main(dry_run: bool) -> int:
         format="%(levelname)s %(name)s: %(message)s",
     )
 
-    source = DummySource()
+    source = _select_source(settings)
 
     if settings.dry_run:
         result = await run_pipeline(source, settings)
