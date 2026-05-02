@@ -30,6 +30,10 @@ class FeedCollectorSettings(BaseSettings):
     )
     scamsniffer_timeout_seconds: float = 10.0
     scamsniffer_evm_networks: str = "ETH,BNB"
+    ofac_base_url: str = "https://sanctionslistservice.ofac.treas.gov"
+    ofac_sdn_filename: str = "SDN_ADVANCED.XML"
+    ofac_timeout_seconds: float = 20.0
+    ofac_use_alive_check: bool = True
 
     @field_validator(
         "database_url",

@@ -39,6 +39,29 @@ def test_scamsniffer_synthetic_chain_labels_map_to_eth_and_bnb():
     assert map_source_chain("scamsniffer", "EVM_UNSPECIFIED_EXPANDED_BNB") == "BNB"
 
 
+def test_ofac_asset_chain_mappings():
+    expected = {
+        "XBT": "BTC",
+        "BTC": "BTC",
+        "ETH": "ETH",
+        "TRX": "TRX",
+        "LTC": "LTC",
+        "XRP": "XRP",
+        "ADA": "ADA",
+        "DOGE": "DOGE",
+        "TON": "TON",
+        "BNB": "BNB",
+        "BSC": "BNB",
+        "OFAC_TOKEN_USDT_ETH_INFERRED": "ETH",
+        "OFAC_TOKEN_USDC_ETH_INFERRED": "ETH",
+        "OFAC_TOKEN_USDT_TRX_INFERRED": "TRX",
+        "OFAC_TOKEN_USDC_TRX_INFERRED": "TRX",
+    }
+
+    for source_chain, network_code in expected.items():
+        assert map_source_chain("ofac", source_chain) == network_code
+
+
 def test_chainabuse_direct_category_mappings():
     assert map_source_category("chainabuse", "PHISHING") == "phishing"
     assert map_source_category("chainabuse", "RANSOMWARE") == "ransomware"
@@ -85,6 +108,13 @@ def test_scamsniffer_category_maps_to_phishing():
     assert map_source_category("scamsniffer", "SOMETHING_NEW") == "phishing"
 
 
+def test_ofac_category_always_maps_to_sanctions():
+    assert map_source_category("ofac", "CYBER2,DPRK3") == "sanctions"
+    assert map_source_category("ofac", "SANCTIONS") == "sanctions"
+    assert map_source_category("ofac", "SOMETHING_NEW") == "sanctions"
+    assert map_source_category("ofac", None) == "sanctions"
+
+
 def test_mappings_are_case_insensitive_and_strip_whitespace():
     assert map_source_chain(" ChainAbuse ", " tron ") == "TRX"
     assert map_source_category(" ChainAbuse ", " phishing ") == "phishing"
@@ -94,3 +124,5 @@ def test_mappings_are_case_insensitive_and_strip_whitespace():
         map_source_chain(" ScamSniffer ", " evm_unspecified_expanded_eth ") == "ETH"
     )
     assert map_source_category(" ScamSniffer ", " phishing ") == "phishing"
+    assert map_source_chain(" Ofac ", " xbt ") == "BTC"
+    assert map_source_category(" Ofac ", " cyber2 ") == "sanctions"

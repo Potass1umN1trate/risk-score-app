@@ -94,6 +94,44 @@ SCAMSNIFFER_EVM_NETWORKS=ETH,BNB
 
 Unknown EVM networks in `SCAMSNIFFER_EVM_NETWORKS` are ignored. For this project iteration only `ETH` and `BNB` are supported.
 
+## OFAC SDN Digital Currency Addresses
+
+OFAC can be selected as a source without an API key:
+
+```bash
+export ENABLED_SOURCES=ofac
+export DRY_RUN=true
+export DUMMY_INITIAL_LIMIT=10
+python3 feed_collector/main.py --dry-run
+```
+
+The source uses the official OFAC Sanctions List Service file download API, not website HTML scraping:
+
+```text
+https://sanctionslistservice.ofac.treas.gov/api/download/SDN_ADVANCED.XML
+```
+
+The default file is `SDN_ADVANCED.XML`. The adapter extracts digital currency address identifiers only; it does not perform OFAC name, person, or entity screening. Every imported OFAC crypto address maps to the internal `sanctions` risk category. OFAC program tags such as `CYBER2`, `DPRK3`, or `RUSSIA-EO14024` are preserved in source evidence and `raw_payload`, not converted into internal risk categories.
+
+OFAC digital currency address listings are official sanctions evidence but are not exhaustive. Dry-run mode still downloads the public XML file before parsing up to `DUMMY_INITIAL_LIMIT` records, so an OFAC smoke run may download a large file even when the requested limit is small.
+
+Optional settings:
+
+```bash
+OFAC_BASE_URL=https://sanctionslistservice.ofac.treas.gov
+OFAC_SDN_FILENAME=SDN_ADVANCED.XML
+OFAC_TIMEOUT_SECONDS=20
+OFAC_USE_ALIVE_CHECK=true
+```
+
+For an intentional local live-DB smoke run, set a developer database URL explicitly:
+
+```bash
+ENABLED_SOURCES=ofac DRY_RUN=false DATABASE_URL=<dev-db-url> python3 feed_collector/main.py --no-dry-run
+```
+
+Automated tests must not use a live OFAC call or a live database. Unit tests use mocked OFAC responses only; DB integration tests use `TEST_DATABASE_URL` and skip when it is absent.
+
 ## Shell-Only Chainabuse Smoke Run
 
 For a safer smoke check that does not store the API key in a file:
@@ -114,10 +152,12 @@ Do not enable shell tracing while handling secrets. The collector does not print
 
 ## Tests
 
-Automated tests use mocks for Chainabuse and ScamSniffer and do not verify live Chainabuse or GitHub access. Do not add live API calls or require a real `CHAINABUSE_API_KEY` in tests.
+Automated tests use mocks for Chainabuse, ScamSniffer, and OFAC and do not verify live Chainabuse, GitHub, or OFAC access. Do not add live API calls or require a real `CHAINABUSE_API_KEY` in tests.
 
 ## Source Selection
 
 `ENABLED_SOURCES` currently accepts comma-separated names, but the current runtime executes only the first source in the list. For example, `ENABLED_SOURCES=chainabuse,dummy` runs `chainabuse`; `ENABLED_SOURCES=dummy,chainabuse` runs `dummy`.
 
 `ENABLED_SOURCES=scamsniffer` runs the ScamSniffer adapter.
+
+`ENABLED_SOURCES=ofac` runs the OFAC adapter.

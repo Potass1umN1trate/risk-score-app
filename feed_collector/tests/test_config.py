@@ -40,6 +40,10 @@ def test_env_example_contains_parseable_placeholder_values():
         == "https://raw.githubusercontent.com/scamsniffer/scam-database/main/blacklist/address.json"
     )
     assert settings.scamsniffer_evm_networks == "ETH,BNB"
+    assert settings.ofac_base_url == "https://sanctionslistservice.ofac.treas.gov"
+    assert settings.ofac_sdn_filename == "SDN_ADVANCED.XML"
+    assert settings.ofac_timeout_seconds == 20
+    assert settings.ofac_use_alive_check is True
 
 
 def test_blank_optional_env_values_are_treated_as_unset():

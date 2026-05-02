@@ -42,6 +42,24 @@ _SCAMSNIFFER_CHAIN_MAP: dict[str, str | None] = {
     "EVM_UNSPECIFIED_EXPANDED_BNB": "BNB",
 }
 
+_OFAC_CHAIN_MAP: dict[str, str | None] = {
+    "XBT": "BTC",
+    "BTC": "BTC",
+    "ETH": "ETH",
+    "TRX": "TRX",
+    "LTC": "LTC",
+    "XRP": "XRP",
+    "ADA": "ADA",
+    "DOGE": "DOGE",
+    "TON": "TON",
+    "BNB": "BNB",
+    "BSC": "BNB",
+    "OFAC_TOKEN_USDT_ETH_INFERRED": "ETH",
+    "OFAC_TOKEN_USDC_ETH_INFERRED": "ETH",
+    "OFAC_TOKEN_USDT_TRX_INFERRED": "TRX",
+    "OFAC_TOKEN_USDC_TRX_INFERRED": "TRX",
+}
+
 _CHAINABUSE_SCAM_CATEGORIES: frozenset[str] = frozenset(
     {
         "RUG_PULL",
@@ -92,6 +110,8 @@ def map_source_chain(source_code: str, source_chain: str | None) -> str | None:
         return _CHAINABUSE_CHAIN_MAP.get(chain)
     if source == "SCAMSNIFFER":
         return _SCAMSNIFFER_CHAIN_MAP.get(chain)
+    if source == "OFAC":
+        return _OFAC_CHAIN_MAP.get(chain)
     return None
 
 
@@ -123,5 +143,8 @@ def map_source_category(source_code: str, source_category: str | None) -> str | 
         if category == "PHISHING":
             return "phishing"
         return "phishing"
+
+    if source == "OFAC":
+        return "sanctions"
 
     return None

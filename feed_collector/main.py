@@ -17,6 +17,7 @@ from app.pipeline import run_pipeline
 from app.source_base import FeedSource
 from app.sources.chainabuse import ChainabuseSource
 from app.sources.dummy import DummySource
+from app.sources.ofac import OfacSource
 from app.sources.scamsniffer import ScamSnifferSource
 
 
@@ -30,6 +31,8 @@ def _select_source(settings: FeedCollectorSettings) -> FeedSource:
 
     if source_code == "chainabuse":
         return ChainabuseSource(settings)
+    if source_code == "ofac":
+        return OfacSource(settings)
     if source_code == "scamsniffer":
         return ScamSnifferSource(settings)
     if source_code == "dummy":
