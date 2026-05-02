@@ -34,6 +34,11 @@ def test_chainabuse_known_but_unseeded_networks_return_none():
     assert map_source_chain("chainabuse", "BASE") is None
 
 
+def test_scamsniffer_synthetic_chain_labels_map_to_eth_and_bnb():
+    assert map_source_chain("scamsniffer", "EVM_UNSPECIFIED_EXPANDED_ETH") == "ETH"
+    assert map_source_chain("scamsniffer", "EVM_UNSPECIFIED_EXPANDED_BNB") == "BNB"
+
+
 def test_chainabuse_direct_category_mappings():
     assert map_source_category("chainabuse", "PHISHING") == "phishing"
     assert map_source_category("chainabuse", "RANSOMWARE") == "ransomware"
@@ -73,8 +78,19 @@ def test_chainabuse_suspicious_group_null_and_unknown_map_to_suspicious():
         assert map_source_category("chainabuse", category) == "suspicious"
 
 
+def test_scamsniffer_category_maps_to_phishing():
+    assert map_source_category("scamsniffer", "PHISHING") == "phishing"
+    assert map_source_category("scamsniffer", "phishing") == "phishing"
+    assert map_source_category("scamsniffer", None) == "phishing"
+    assert map_source_category("scamsniffer", "SOMETHING_NEW") == "phishing"
+
+
 def test_mappings_are_case_insensitive_and_strip_whitespace():
     assert map_source_chain(" ChainAbuse ", " tron ") == "TRX"
     assert map_source_category(" ChainAbuse ", " phishing ") == "phishing"
     assert map_source_chain(" dummy ", " eth ") == "ETH"
     assert map_source_category(" dummy ", " scam ") == "scam"
+    assert (
+        map_source_chain(" ScamSniffer ", " evm_unspecified_expanded_eth ") == "ETH"
+    )
+    assert map_source_category(" ScamSniffer ", " phishing ") == "phishing"

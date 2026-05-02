@@ -1,9 +1,14 @@
+from pathlib import Path
+from typing import Any
+
 from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_ENV_FILE = Path(__file__).resolve().parents[1] / ".env"
+
 
 class FeedCollectorSettings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=_ENV_FILE, extra="ignore")
 
     database_url: str | None = None
     dry_run: bool = True
@@ -20,6 +25,27 @@ class FeedCollectorSettings(BaseSettings):
     chainabuse_trusted: bool | None = None
     chainabuse_category: str | None = None
     chainabuse_chain: str | None = None
+    scamsniffer_address_blacklist_url: str = (
+        "https://raw.githubusercontent.com/scamsniffer/scam-database/main/blacklist/address.json"
+    )
+    scamsniffer_timeout_seconds: float = 10.0
+    scamsniffer_evm_networks: str = "ETH,BNB"
+
+    @field_validator(
+        "database_url",
+        "chainabuse_api_key",
+        "chainabuse_before",
+        "chainabuse_checked",
+        "chainabuse_trusted",
+        "chainabuse_category",
+        "chainabuse_chain",
+        mode="before",
+    )
+    @classmethod
+    def _blank_optional_env_values_are_unset(cls, value: Any) -> Any:
+        if isinstance(value, str) and not value.strip():
+            return None
+        return value
 
     @field_validator("chainabuse_per_page")
     @classmethod

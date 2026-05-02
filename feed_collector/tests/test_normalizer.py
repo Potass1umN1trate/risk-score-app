@@ -44,6 +44,22 @@ def test_eth_address_is_lowercased():
     assert nfa.risk_category_code == "phishing"
 
 
+def test_scamsniffer_expanded_bnb_address_is_lowercased():
+    nfa, reason = normalize_feed_record(
+        "scamsniffer",
+        RawFeedRecord(
+            address=" 0x742d35Cc6634C0532925a3b844Bc454e4438f44e ",
+            source_chain="EVM_UNSPECIFIED_EXPANDED_BNB",
+            source_category="PHISHING",
+        ),
+    )
+    assert reason is None
+    assert nfa is not None
+    assert nfa.address == "0x742d35cc6634c0532925a3b844bc454e4438f44e"
+    assert nfa.network_code == "BNB"
+    assert nfa.risk_category_code == "phishing"
+
+
 def test_source_evidence_fields_are_preserved():
     first_seen = datetime(2026, 1, 1, tzinfo=timezone.utc)
     last_seen = datetime(2026, 1, 2, tzinfo=timezone.utc)

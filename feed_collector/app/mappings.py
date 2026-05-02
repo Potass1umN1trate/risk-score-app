@@ -37,6 +37,11 @@ _CHAINABUSE_CHAIN_MAP: dict[str, str | None] = {
     "DOGE": None,
 }
 
+_SCAMSNIFFER_CHAIN_MAP: dict[str, str | None] = {
+    "EVM_UNSPECIFIED_EXPANDED_ETH": "ETH",
+    "EVM_UNSPECIFIED_EXPANDED_BNB": "BNB",
+}
+
 _CHAINABUSE_SCAM_CATEGORIES: frozenset[str] = frozenset(
     {
         "RUG_PULL",
@@ -85,6 +90,8 @@ def map_source_chain(source_code: str, source_chain: str | None) -> str | None:
         return _DUMMY_CHAIN_MAP.get(chain)
     if source == "CHAINABUSE":
         return _CHAINABUSE_CHAIN_MAP.get(chain)
+    if source == "SCAMSNIFFER":
+        return _SCAMSNIFFER_CHAIN_MAP.get(chain)
     return None
 
 
@@ -109,5 +116,12 @@ def map_source_category(source_code: str, source_category: str | None) -> str | 
         if category in _CHAINABUSE_SUSPICIOUS_CATEGORIES:
             return "suspicious"
         return "suspicious"
+
+    if source == "SCAMSNIFFER":
+        if category is None:
+            return "phishing"
+        if category == "PHISHING":
+            return "phishing"
+        return "phishing"
 
     return None

@@ -5,6 +5,8 @@ import pytest
 from app.config import FeedCollectorSettings
 from app.pipeline import run_pipeline
 from app.sources.dummy import DummySource
+from app.sources.scamsniffer import ScamSnifferSource
+from main import _select_source
 
 
 @pytest.fixture
@@ -17,6 +19,14 @@ async def test_pipeline_fetched_count(settings):
     source = DummySource()
     result = await run_pipeline(source, settings)
     assert result.fetched_count == 3
+
+
+def test_select_source_supports_scamsniffer():
+    settings = FeedCollectorSettings(dry_run=True, enabled_sources="scamsniffer")
+
+    source = _select_source(settings)
+
+    assert isinstance(source, ScamSnifferSource)
 
 
 @pytest.mark.asyncio
