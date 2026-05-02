@@ -237,3 +237,60 @@ class TestInitdbNetworksSeed:
         assert name in seed_sql, (
             f"initdb seed is missing network name '{name}' for code '{code}'"
         )
+
+
+# ─── F: initdb seed contains feed_sources and flagged_address_sources ─────────
+
+class TestInitdbFeedSourcesSeed:
+    """
+    Verify the initdb SQL in k8s/postgres/initdb-configmap.yaml declares
+    both new tables and seeds all six known feed source codes.
+    No Postgres, Docker, or k8s dependency.
+    """
+
+    _EXPECTED_FEED_CODES = [
+        "chainabuse",
+        "ofac",
+        "trm_sanctions",
+        "scamsniffer",
+        "bitcoinabuse",
+        "cryptoscamdb",
+    ]
+
+    @pytest.fixture(scope="class")
+    def seed_sql(self) -> str:
+        text = _INITDB_CONFIGMAP.read_text(encoding="utf-8")
+        lines = text.splitlines()
+        for idx, line in enumerate(lines):
+            if line.strip() == "01_schema.sql: |":
+                block = []
+                for raw in lines[idx + 1:]:
+                    if raw and not raw.startswith("    "):
+                        break
+                    block.append(raw[4:] if raw.startswith("    ") else "")
+                return "\n".join(block)
+        raise AssertionError("01_schema.sql block not found in initdb configmap")
+
+    def test_feed_sources_table_declared(self, seed_sql):
+        assert "CREATE TABLE IF NOT EXISTS feed_sources" in seed_sql, (
+            "initdb seed is missing 'CREATE TABLE IF NOT EXISTS feed_sources'"
+        )
+
+    def test_flagged_address_sources_table_declared(self, seed_sql):
+        assert "CREATE TABLE IF NOT EXISTS flagged_address_sources" in seed_sql, (
+            "initdb seed is missing 'CREATE TABLE IF NOT EXISTS flagged_address_sources'"
+        )
+
+    @pytest.mark.parametrize("code", [
+        "chainabuse",
+        "ofac",
+        "trm_sanctions",
+        "scamsniffer",
+        "bitcoinabuse",
+        "cryptoscamdb",
+    ])
+    def test_feed_source_code_in_seed(self, seed_sql, code):
+        assert f"'{code}'" in seed_sql, (
+            f"initdb seed is missing feed source code '{code}' — "
+            "existing DBs initialized before this migration will need 20260502_feed_sources.sql applied"
+        )

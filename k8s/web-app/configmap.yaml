@@ -9,4 +9,4 @@ data:
   ANALYTICS_SERVICE_URL: "http://analytics-service:8000"
   # Development/port-forward URL. For ingress or a public staging URL,
   # replace this and update the GitHub OAuth callback to match.
-  NEXTAUTH_URL: "http://localhost:3200"
+  NEXTAUTH_URL: "http://10.0.2.194"

@@ -8,6 +8,7 @@
 Migration files for existing PostgreSQL PVCs:
 - `k8s/postgres/migrations/20260429_network_analysis_limits.sql` — idempotently adds network analysis limit columns and constraints to `networks`.
 - `k8s/postgres/migrations/20260501_audit_logs_actor_role.sql` — idempotently adds `audit_logs.actor_role`, its constraint, and index.
+- `k8s/postgres/migrations/20260502_feed_sources.sql` — idempotently adds `feed_sources`, `flagged_address_sources`, their triggers, indexes, and seeds six known feed source rows.
 
 Fresh empty PVCs receive the current schema from `k8s/postgres/initdb-configmap.yaml`; already-initialized PVCs do not rerun initdb and must receive migrations explicitly.
 
@@ -85,6 +86,64 @@ The same string address can exist in different networks. Never query by address 
 | created_by_user_id | CHAR(36) | FK → users.id |
 | created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
 | is_active | BOOLEAN | NOT NULL DEFAULT TRUE — soft delete; moderator sees only own records for deactivation |
+
+### feed_sources
+Stores configuration and sync state for each external threat-intel feed integration.
+One row per feed (Chainabuse, OFAC, TRM, ScamSniffer, BitcoinAbuse, CryptoScamDB, …).
+
+| Column | Type | Notes |
+|---|---|---|
+| id | CHAR(36) | PK (UUID) — deterministic seed UUIDs for known sources |
+| code | VARCHAR(64) | UNIQUE — machine-readable feed key, e.g. `chainabuse`, `ofac` |
+| name | VARCHAR(128) | Human-readable display name |
+| base_url | TEXT | nullable — API base URL when documented |
+| is_active | BOOLEAN | NOT NULL DEFAULT TRUE — disabled rows are skipped by feed-collector |
+| last_success_at | TIMESTAMPTZ | nullable — set by feed-collector after a successful run |
+| last_attempt_at | TIMESTAMPTZ | nullable — set by feed-collector at the start of each run |
+| last_error | TEXT | nullable — last error message if the run failed |
+| config_json | JSONB | nullable — source-specific config (API key ref name, pagination params, etc.) |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() — managed by `trg_feed_sources_updated_at` trigger |
+
+Seeded rows (idempotent `ON CONFLICT (code) DO NOTHING`):
+
+| code | name | base_url |
+|---|---|---|
+| `chainabuse` | Chainabuse | `https://api.chainabuse.com/v0` |
+| `ofac` | OFAC SDN | NULL |
+| `trm_sanctions` | TRM Sanctions | NULL |
+| `scamsniffer` | ScamSniffer | NULL |
+| `bitcoinabuse` | BitcoinAbuse | NULL |
+| `cryptoscamdb` | CryptoScamDB | NULL |
+
+### flagged_address_sources
+Source-specific evidence for a flagged address. One row per `(feed_source, external_report, flagged_address)` when `external_id` is set, or per `(feed_source, flagged_address, source_category)` when it is not.
+
+| Column | Type | Notes |
+|---|---|---|
+| id | CHAR(36) | PK (UUID) |
+| flagged_address_id | CHAR(36) | NOT NULL FK → flagged_addresses.id ON DELETE CASCADE |
+| feed_source_id | CHAR(36) | NOT NULL FK → feed_sources.id ON DELETE CASCADE |
+| external_id | VARCHAR(255) | nullable — source-specific report ID or URL |
+| source_category | VARCHAR(128) | nullable — risk category as reported by the source (may differ from risk_categories.code) |
+| source_chain | VARCHAR(64) | nullable — blockchain/network as reported by the source |
+| confidence | DECIMAL(5,2) | nullable — source confidence score |
+| trusted | BOOLEAN | nullable — source-level trusted flag |
+| checked | BOOLEAN | nullable — source-level checked/verified flag |
+| first_seen | TIMESTAMPTZ | nullable — earliest report timestamp from the source |
+| last_seen | TIMESTAMPTZ | nullable — most recent report timestamp from the source |
+| raw_payload_json | JSONB | nullable — snapshot of raw source payload for auditability |
+| created_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() |
+| updated_at | TIMESTAMPTZ | NOT NULL DEFAULT NOW() — managed by `trg_flagged_address_sources_updated_at` trigger |
+
+Indexes:
+- `idx_fas_flagged_address` on `(flagged_address_id)` — fetch all sources for one address
+- `idx_fas_feed_source` on `(feed_source_id)` — fetch all records from one source
+- `idx_fas_feed_source_external_id` on `(feed_source_id, external_id) WHERE external_id IS NOT NULL`
+
+Uniqueness:
+- `uq_fas_source_external_address` UNIQUE on `(feed_source_id, external_id, flagged_address_id) WHERE external_id IS NOT NULL`
+- `uq_fas_source_address_category` UNIQUE on `(feed_source_id, flagged_address_id, source_category) NULLS NOT DISTINCT WHERE external_id IS NULL` — `NULLS NOT DISTINCT` ensures rows with `NULL source_category` are also deduplicated
 
 ### analysis_requests
 | Column | Type | Notes |
