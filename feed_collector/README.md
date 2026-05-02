@@ -28,6 +28,18 @@ Never commit `feed_collector/.env`, API keys, database URLs, or other secrets. R
 
 The feed collector loads `feed_collector/.env` regardless of whether the CLI is started from the repository root or from `feed_collector/`. Process environment variables still override values from the file.
 
+## Fetch Modes
+
+The collector reports one fetch mode per source run:
+
+- `initial`: used by dry-run and by the first non-dry-run DB run when `feed_sources.last_success_at` is `NULL`.
+- `incremental`: used by repeat non-dry-run DB runs when `feed_sources.last_success_at` is set and the source supports time filtering.
+- `repeat_full`: used by repeat non-dry-run DB runs when `feed_sources.last_success_at` is set but the source does not support time filtering.
+
+Dry-run mode has no database sync state, so it always calls `fetch_initial` and reports `fetch_mode=initial`. Non-dry-run mode reads `feed_sources.last_success_at`; successful runs update that timestamp only after fetch, normalization, and database persistence complete.
+
+Chainabuse supports incremental `fetch_since(last_success_at)` in non-dry-run repeat runs. ScamSniffer and OFAC are static/full refresh sources for now, so repeat DB runs continue to call `fetch_initial` with `fetch_mode=repeat_full`. Failed incremental fetches do not fallback to an initial fetch.
+
 ## Chainabuse Smoke Run With `.env`
 
 To run a safe manual smoke check against Chainabuse `GET /v0/reports`:
@@ -57,6 +69,8 @@ To run a safe manual smoke check against Chainabuse `GET /v0/reports`:
 
 Chainabuse dry-run performs real API calls to `/v0/reports`, but it does not connect to PostgreSQL and does not write to the database.
 
+In non-dry-run mode, Chainabuse uses `fetch_initial` for the first successful DB-backed run and `fetch_since(feed_sources.last_success_at)` for repeat runs.
+
 Expected safe output shape:
 
 ```text
@@ -83,6 +97,8 @@ https://raw.githubusercontent.com/scamsniffer/scam-database/main/blacklist/addre
 The address blacklist does not provide reliable per-address chain metadata. The collector treats strings matching `0x` plus 40 hexadecimal characters as EVM account identifiers and intentionally expands each address to the configured project EVM networks, currently `ETH` and `BNB`.
 
 This expansion represents wallet-owner risk across supported EVM networks. It is not proof that ScamSniffer observed malicious activity on each expanded chain. Evidence rows preserve this with `chain_scope=EVM_UNSPECIFIED_EXPANDED` and `expanded_to_network=ETH` or `BNB` in the raw payload. ScamSniffer domains are not imported by this source.
+
+ScamSniffer does not support time filtering. Dry-run and first DB runs use `fetch_initial`; repeat DB runs use `fetch_initial` again with `fetch_mode=repeat_full`.
 
 Optional settings:
 
@@ -114,6 +130,8 @@ https://sanctionslistservice.ofac.treas.gov/api/download/SDN_ADVANCED.XML
 The default file is `SDN_ADVANCED.XML`. The adapter extracts digital currency address identifiers only; it does not perform OFAC name, person, or entity screening. Every imported OFAC crypto address maps to the internal `sanctions` risk category. OFAC program tags such as `CYBER2`, `DPRK3`, or `RUSSIA-EO14024` are preserved in source evidence and `raw_payload`, not converted into internal risk categories.
 
 OFAC digital currency address listings are official sanctions evidence but are not exhaustive. Dry-run mode still downloads the public XML file before parsing up to `DUMMY_INITIAL_LIMIT` records, so an OFAC smoke run may download a large file even when the requested limit is small.
+
+OFAC does not support time filtering in the current adapter. Dry-run and first DB runs use `fetch_initial`; repeat DB runs use `fetch_initial` again with `fetch_mode=repeat_full`. OFAC `/changes/latest` and `/changes/history` incremental diff support is not implemented yet.
 
 Optional settings:
 

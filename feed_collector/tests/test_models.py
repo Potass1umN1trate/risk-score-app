@@ -123,6 +123,8 @@ def test_feed_run_result_defaults():
     )
     assert result.errors == []
     assert result.dry_run is True
+    assert result.fetch_mode is None
+    assert result.fetch_since is None
 
 
 def test_feed_run_result_with_errors():
@@ -145,5 +147,9 @@ def test_feed_run_result_dry_run_false():
         normalized_count=10,
         skipped_count=0,
         dry_run=False,
+        fetch_mode="incremental",
+        fetch_since=datetime(2026, 1, 1, tzinfo=timezone.utc),
     )
     assert result.dry_run is False
+    assert result.fetch_mode == "incremental"
+    assert result.fetch_since == datetime(2026, 1, 1, tzinfo=timezone.utc)

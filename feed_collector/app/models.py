@@ -51,3 +51,5 @@ class FeedRunResult:
     skipped_count: int
     errors: list[str] = field(default_factory=list)
     dry_run: bool = True
+    fetch_mode: str | None = None
+    fetch_since: datetime | None = None

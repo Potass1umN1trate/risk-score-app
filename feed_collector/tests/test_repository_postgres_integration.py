@@ -413,6 +413,8 @@ async def test_write_audit_log_inserts_feed_collect_row(pg_pool, dummy_feed_sour
         skipped_count=1,
         errors=["skipped FAKECHAIN"],
         dry_run=False,
+        fetch_mode="repeat_full",
+        fetch_since=None,
     )
 
     await repo.write_audit_log(pg_pool, feed_source_id, "dummy", result)
@@ -441,6 +443,8 @@ async def test_write_audit_log_inserts_feed_collect_row(pg_pool, dummy_feed_sour
         assert details["skipped_count"] == 1
         assert details["error_count"] == 1
         assert details["dry_run"] is False
+        assert details["fetch_mode"] == "repeat_full"
+        assert details["fetch_since"] is None
     finally:
         await pg_pool.execute(
             "DELETE FROM audit_logs WHERE entity_id = $1 AND action = 'FEED_COLLECT'",
@@ -479,6 +483,8 @@ async def test_full_pipeline_dry_run_false_end_to_end(pg_pool, dummy_feed_source
         # Pipeline summary checks
         assert result.dry_run is False
         assert result.source_code == "dummy"
+        assert result.fetch_mode == "initial"
+        assert result.fetch_since is None
         assert result.fetched_count == 3
         assert result.normalized_count == 2
         assert result.skipped_count == 1

@@ -214,6 +214,10 @@ async def write_audit_log(
         "skipped_count": result.skipped_count,
         "error_count": len(result.errors),
         "dry_run": result.dry_run,
+        "fetch_mode": result.fetch_mode,
+        "fetch_since": (
+            result.fetch_since.isoformat() if result.fetch_since is not None else None
+        ),
     }
     await pool.execute(
         """

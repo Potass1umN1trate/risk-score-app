@@ -1,8 +1,9 @@
 import logging
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from .config import FeedCollectorSettings
-from .models import FeedRunResult, NormalizedFlaggedAddress
+from .models import FeedRunResult, FeedSourceConfig, NormalizedFlaggedAddress
 from .normalizer import normalize_feed_record
 from .source_base import FeedSource
 
@@ -29,6 +30,30 @@ def _normalize_records(
             normalized.append(nfa)
 
     return normalized, errors
+
+
+def _select_fetch_plan(
+    source: FeedSource,
+    feed_source_config: FeedSourceConfig,
+) -> tuple[str, datetime | None]:
+    if feed_source_config.last_success_at is None:
+        return "initial", None
+    if source.supports_time_filter:
+        return "incremental", feed_source_config.last_success_at
+    return "repeat_full", None
+
+
+async def _fetch_records(
+    source: FeedSource,
+    fetch_mode: str,
+    fetch_since: datetime | None,
+    limit: int,
+) -> list:
+    if fetch_mode == "incremental":
+        if fetch_since is None:
+            raise ValueError("fetch_since is required for incremental fetch mode.")
+        return await source.fetch_since(fetch_since, limit)
+    return await source.fetch_initial(limit=limit)
 
 
 async def run_pipeline(
@@ -61,6 +86,8 @@ async def _run_dry(
             skipped_count=0,
             errors=[f"Source '{source.source_code}' reported unavailable."],
             dry_run=True,
+            fetch_mode="initial",
+            fetch_since=None,
         )
 
     raw_records = await source.fetch_initial(limit=settings.dummy_initial_limit)
@@ -83,6 +110,8 @@ async def _run_dry(
         skipped_count=len(errors),
         errors=errors,
         dry_run=True,
+        fetch_mode="initial",
+        fetch_since=None,
     )
 
 
@@ -141,8 +170,15 @@ async def _run_with_db(
             dry_run=False,
         )
 
+    fetch_mode, fetch_since = _select_fetch_plan(source, feed_source_config)
+
     try:
-        raw_records = await source.fetch_initial(limit=settings.dummy_initial_limit)
+        raw_records = await _fetch_records(
+            source,
+            fetch_mode,
+            fetch_since,
+            settings.dummy_initial_limit,
+        )
     except Exception as exc:
         safe_err = f"Fetch failed for source '{source.source_code}': {type(exc).__name__}"
         logger.exception("Fetch failed for source %s", source.source_code)
@@ -154,6 +190,8 @@ async def _run_with_db(
             skipped_count=0,
             errors=[safe_err],
             dry_run=False,
+            fetch_mode=fetch_mode,
+            fetch_since=fetch_since,
         )
 
     fetched_count = len(raw_records)
@@ -204,6 +242,8 @@ async def _run_with_db(
             skipped_count=len(errors),
             errors=errors + [safe_err],
             dry_run=False,
+            fetch_mode=fetch_mode,
+            fetch_since=fetch_since,
         )
 
     await repo.mark_feed_success(db_pool, feed_source_id)
@@ -215,6 +255,8 @@ async def _run_with_db(
         skipped_count=len(errors),
         errors=errors,
         dry_run=False,
+        fetch_mode=fetch_mode,
+        fetch_since=fetch_since,
     )
 
     try:
