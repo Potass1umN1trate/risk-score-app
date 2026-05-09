@@ -1,0 +1,7 @@
+[allowlist]
+paths = [
+  "k8s/analytics/secret.yaml.example",
+  "k8s/web-app/secret.yaml.example",
+  "k8s/postgres/secret.yaml.example",
+  "k8s/feed-collector/secret.yaml.example"
+]
