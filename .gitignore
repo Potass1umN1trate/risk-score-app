@@ -31,4 +31,4 @@ node_modules/
 .next/
 
 # Kubernetes secrets with real values — example files are tracked, real files are not
-k8s/feed-collector/secret.yaml
+k8s/**/secret.yaml

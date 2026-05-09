@@ -81,7 +81,7 @@ test("resolveSecret: returns null when neither is set", () => {
 
 test("resolveSecret: AUTH_SECRET from .env.local is truthy", () => {
   // Mirrors the actual .env.local value format (64-char hex string).
-  const env = { AUTH_SECRET: "434b3445e02c26ab2b2ec39124694052202c9988669f3e14e52e540f378627a2" };
+  const env = { AUTH_SECRET: "434b3445e02c26ab2b2ec39124694052202c9988669f3e14e52e540f378627a2" }; // gitleaks:allow
   const secret = resolveSecret(env);
   assert.ok(secret, "secret must be truthy");
   assert.equal(typeof secret, "string");

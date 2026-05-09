@@ -154,7 +154,8 @@
       "Bash(kubectl -n risk-score-app create job feed-collector-debug-1 --image=risk-score-feed-collector:latest --dry-run=client -o yaml)",
       "Bash(kubectl delete *)",
       "Bash(python3 -m pytest feed_collector/tests/test_ofac_source.py -q --tb=short)",
-      "Bash(python3 -m pytest feed_collector/tests/test_ofac_source.py::test_feature_type_id_lookup_extracts_address -q --tb=long)"
+      "Bash(python3 -m pytest feed_collector/tests/test_ofac_source.py::test_feature_type_id_lookup_extracts_address -q --tb=long)",
+      "Bash(xargs ls *)"
     ]
   }
 }
