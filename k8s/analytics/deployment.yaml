@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: analytics-service
-          image: risk-score-analytics:latest
+          image: anonymous98743/risk-score-analytics:sha-c973005
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
