@@ -7,7 +7,7 @@ data:
   ENABLED_SOURCES: "ofac"
   DRY_RUN: "false"
   LOG_LEVEL: "INFO"
-  DUMMY_INITIAL_LIMIT: "100"
+  DUMMY_INITIAL_LIMIT: "10000"
   OFAC_BASE_URL: "https://sanctionslistservice.ofac.treas.gov"
   OFAC_SDN_FILENAME: "SDN_ADVANCED.XML"
   OFAC_TIMEOUT_SECONDS: "20"

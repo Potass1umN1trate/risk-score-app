@@ -1,6 +1,6 @@
 import logging
 import re
-import defusedxml.ElementTree as ET
+import xml.etree.ElementTree as ET
 from datetime import datetime
 from typing import Any
 
