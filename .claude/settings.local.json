@@ -155,7 +155,11 @@
       "Bash(kubectl delete *)",
       "Bash(python3 -m pytest feed_collector/tests/test_ofac_source.py -q --tb=short)",
       "Bash(python3 -m pytest feed_collector/tests/test_ofac_source.py::test_feature_type_id_lookup_extracts_address -q --tb=long)",
-      "Bash(xargs ls *)"
+      "Bash(xargs ls *)",
+      "Bash(python -m pytest feed_collector/tests/ -q --tb=short)",
+      "Bash(python -m pytest tests/ -q --tb=short)",
+      "Bash(pip install *)",
+      "Bash(python -m pytest tests/ -q --tb=short --ignore=tests/test_ofac_source.py --ignore=tests/test_pipeline_dry_run.py)"
     ]
   }
 }

@@ -1,3 +1,4 @@
+import logging
 import re
 import defusedxml.ElementTree as ET
 from datetime import datetime
@@ -6,8 +7,11 @@ from typing import Any
 import httpx
 
 from ..config import FeedCollectorSettings
+from ..error_sanitizer import sanitize_error
 from ..models import RawFeedRecord
 from ..source_base import FeedSource
+
+logger = logging.getLogger(__name__)
 
 
 class OfacSourceError(RuntimeError):
@@ -50,21 +54,30 @@ class OfacSource(FeedSource):
             ) as client:
                 if self._settings.ofac_use_alive_check:
                     response = await client.get(f"{self._base_url}/alive")
-                    return response.status_code == 200
-
-                response = await client.head(self._download_url)
-                return response.status_code >= 200 and response.status_code < 300
-        except httpx.RequestError:
+                    result = response.status_code == 200
+                else:
+                    response = await client.head(self._download_url)
+                    result = response.status_code >= 200 and response.status_code < 300
+        except httpx.RequestError as exc:
+            logger.debug("ofac: availability check → False (%s)", sanitize_error(exc))
             return False
+        logger.debug("ofac: availability check → %s", result)
+        return result
 
     async def fetch_initial(self, limit: int) -> list[RawFeedRecord]:
+        logger.info("ofac: fetch_initial start limit=%d", limit)
         if limit <= 0:
+            logger.info("ofac: fetch_initial complete records=0")
             return []
 
         xml_bytes = await self._download_xml()
-        return _records_from_xml(xml_bytes, self._download_url, limit)
+        records = _records_from_xml(xml_bytes, self._download_url, limit)
+        logger.info("ofac: fetch_initial complete records=%d", len(records))
+        return records
 
     async def fetch_since(self, since: datetime, limit: int) -> list[RawFeedRecord]:
+        logger.info("ofac: fetch_since start since=%s limit=%d", since.isoformat(), limit)
+        logger.info("ofac: fetch_since complete records=0")
         return []
 
     @property
@@ -81,11 +94,14 @@ class OfacSource(FeedSource):
             ) as client:
                 response = await client.get(self._download_url)
         except httpx.TimeoutException as exc:
+            logger.warning("ofac: download timed out: %s", sanitize_error(exc))
             raise OfacSourceError("OFAC SLS request timed out.") from exc
         except httpx.RequestError as exc:
+            logger.warning("ofac: download request error: %s", sanitize_error(exc))
             raise OfacSourceError("OFAC SLS request failed.") from exc
 
         if response.status_code < 200 or response.status_code >= 300:
+            logger.warning("ofac: HTTP %d from SLS download endpoint", response.status_code)
             raise OfacSourceError(
                 f"OFAC SLS download failed with status {response.status_code}."
             )
@@ -113,6 +129,7 @@ def _records_from_xml(
     try:
         root = ET.fromstring(xml_bytes)
     except ET.ParseError as exc:
+        logger.warning("ofac: XML parse error: %s", sanitize_error(exc))
         raise OfacSourceError("OFAC SLS XML was malformed.") from exc
 
     feature_type_map = _build_feature_type_map(root)

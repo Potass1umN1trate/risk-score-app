@@ -1,11 +1,15 @@
+import logging
 from datetime import datetime, timezone
 from typing import Any
 
 import httpx
 
 from ..config import FeedCollectorSettings
+from ..error_sanitizer import sanitize_error
 from ..models import RawFeedRecord
 from ..source_base import FeedSource
+
+logger = logging.getLogger(__name__)
 
 
 class ChainabuseSourceError(RuntimeError):
@@ -32,20 +36,31 @@ class ChainabuseSource(FeedSource):
 
     async def check_availability(self) -> bool:
         if not self._settings.chainabuse_api_key:
+            logger.debug("chainabuse: availability check → False (no API key)")
             return False
 
         try:
             payload = await self._request_reports(page=1, per_page=1)
-        except ChainabuseSourceError:
+        except ChainabuseSourceError as exc:
+            logger.debug("chainabuse: availability check → False (%s)", sanitize_error(exc))
             return False
 
-        return isinstance(payload, dict) and isinstance(payload.get("reports"), list)
+        result = isinstance(payload, dict) and isinstance(payload.get("reports"), list)
+        logger.debug("chainabuse: availability check → %s", result)
+        return result
 
     async def fetch_initial(self, limit: int) -> list[RawFeedRecord]:
-        return await self._fetch_paginated(limit=limit, since=None)
+        logger.info("chainabuse: fetch_initial start limit=%d", limit)
+        records = await self._fetch_paginated(limit=limit, since=None)
+        logger.info("chainabuse: fetch_initial complete records=%d", len(records))
+        return records
 
     async def fetch_since(self, since: datetime, limit: int) -> list[RawFeedRecord]:
-        return await self._fetch_paginated(limit=limit, since=_format_utc_iso(since))
+        since_iso = _format_utc_iso(since)
+        logger.info("chainabuse: fetch_since start since=%s limit=%d", since_iso, limit)
+        records = await self._fetch_paginated(limit=limit, since=since_iso)
+        logger.info("chainabuse: fetch_since complete records=%d", len(records))
+        return records
 
     async def _fetch_paginated(
         self,
@@ -72,6 +87,7 @@ class ChainabuseSource(FeedSource):
 
             reports = payload.get("reports") if isinstance(payload, dict) else None
             if not isinstance(reports, list):
+                logger.warning("chainabuse: response missing reports list on page %d", page)
                 raise ChainabuseSourceError(
                     "Chainabuse response was malformed: reports must be a list."
                 )
@@ -120,11 +136,14 @@ class ChainabuseSource(FeedSource):
                     auth=auth,
                 )
         except httpx.TimeoutException as exc:
+            logger.warning("chainabuse: request timed out: %s", sanitize_error(exc))
             raise ChainabuseSourceError("Chainabuse request timed out.") from exc
         except httpx.RequestError as exc:
+            logger.warning("chainabuse: request error: %s", sanitize_error(exc))
             raise ChainabuseSourceError("Chainabuse request failed.") from exc
 
         if response.status_code < 200 or response.status_code >= 300:
+            logger.warning("chainabuse: HTTP %d from reports endpoint", response.status_code)
             raise ChainabuseSourceError(
                 f"Chainabuse request failed with status {response.status_code}."
             )
@@ -132,11 +151,13 @@ class ChainabuseSource(FeedSource):
         try:
             payload = response.json()
         except ValueError as exc:
+            logger.warning("chainabuse: response was not valid JSON: %s", sanitize_error(exc))
             raise ChainabuseSourceError(
                 "Chainabuse response was not valid JSON."
             ) from exc
 
         if not isinstance(payload, dict):
+            logger.warning("chainabuse: unexpected top-level response shape: %s", type(payload).__name__)
             raise ChainabuseSourceError(
                 "Chainabuse response was malformed: top-level JSON must be an object."
             )

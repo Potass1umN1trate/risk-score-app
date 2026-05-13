@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime
 from typing import Any
@@ -5,8 +6,11 @@ from typing import Any
 import httpx
 
 from ..config import FeedCollectorSettings
+from ..error_sanitizer import sanitize_error
 from ..models import RawFeedRecord
 from ..source_base import FeedSource
+
+logger = logging.getLogger(__name__)
 
 
 class ScamSnifferSourceError(RuntimeError):
@@ -38,12 +42,16 @@ class ScamSnifferSource(FeedSource):
         try:
             payload = await self._request_json()
             _candidate_addresses(payload)
-        except ScamSnifferSourceError:
+        except ScamSnifferSourceError as exc:
+            logger.debug("scamsniffer: availability check → False (%s)", sanitize_error(exc))
             return False
+        logger.debug("scamsniffer: availability check → True")
         return True
 
     async def fetch_initial(self, limit: int) -> list[RawFeedRecord]:
+        logger.info("scamsniffer: fetch_initial start limit=%d", limit)
         if limit <= 0:
+            logger.info("scamsniffer: fetch_initial complete records=0")
             return []
 
         payload = await self._request_json()
@@ -80,9 +88,12 @@ class ScamSnifferSource(FeedSource):
                     )
                 )
 
+        logger.info("scamsniffer: fetch_initial complete records=%d", len(records))
         return records
 
     async def fetch_since(self, since: datetime, limit: int) -> list[RawFeedRecord]:
+        logger.info("scamsniffer: fetch_since start since=%s limit=%d", since.isoformat(), limit)
+        logger.info("scamsniffer: fetch_since complete records=0")
         return []
 
     async def _request_json(self) -> Any:
@@ -95,11 +106,14 @@ class ScamSnifferSource(FeedSource):
                     self._settings.scamsniffer_address_blacklist_url
                 )
         except httpx.TimeoutException as exc:
+            logger.warning("scamsniffer: request timed out: %s", sanitize_error(exc))
             raise ScamSnifferSourceError("ScamSniffer request timed out.") from exc
         except httpx.RequestError as exc:
+            logger.warning("scamsniffer: request error: %s", sanitize_error(exc))
             raise ScamSnifferSourceError("ScamSniffer request failed.") from exc
 
         if response.status_code < 200 or response.status_code >= 300:
+            logger.warning("scamsniffer: HTTP %d from blacklist endpoint", response.status_code)
             raise ScamSnifferSourceError(
                 f"ScamSniffer request failed with status {response.status_code}."
             )
@@ -107,6 +121,7 @@ class ScamSnifferSource(FeedSource):
         try:
             return response.json()
         except ValueError as exc:
+            logger.warning("scamsniffer: response was not valid JSON: %s", sanitize_error(exc))
             raise ScamSnifferSourceError(
                 "ScamSniffer response was not valid JSON."
             ) from exc
@@ -127,6 +142,7 @@ def _candidate_addresses(payload: Any) -> list[str]:
 
         return [key for key in payload.keys() if isinstance(key, str)]
 
+    logger.warning("scamsniffer: unexpected top-level response shape: %s", type(payload).__name__)
     raise ScamSnifferSourceError(
         "ScamSniffer response was malformed: top-level JSON must be a list or object."
     )

@@ -1,7 +1,10 @@
+import logging
 from datetime import datetime
 
 from ..models import RawFeedRecord
 from ..source_base import FeedSource
+
+logger = logging.getLogger(__name__)
 
 _DUMMY_RECORDS: list[RawFeedRecord] = [
     RawFeedRecord(
@@ -46,6 +49,7 @@ class DummySource(FeedSource):
         return "dummy"
 
     async def check_availability(self) -> bool:
+        logger.debug("dummy: availability check → True")
         return True
 
     @property
@@ -53,7 +57,12 @@ class DummySource(FeedSource):
         return False
 
     async def fetch_initial(self, limit: int) -> list[RawFeedRecord]:
-        return list(_DUMMY_RECORDS[:limit])
+        logger.info("dummy: fetch_initial start limit=%d", limit)
+        records = list(_DUMMY_RECORDS[:limit])
+        logger.info("dummy: fetch_initial complete records=%d", len(records))
+        return records
 
     async def fetch_since(self, since: datetime, limit: int) -> list[RawFeedRecord]:
+        logger.info("dummy: fetch_since start since=%s limit=%d", since.isoformat(), limit)
+        logger.info("dummy: fetch_since complete records=0")
         return []
