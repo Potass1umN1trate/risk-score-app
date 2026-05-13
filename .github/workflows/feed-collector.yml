@@ -4,7 +4,7 @@ on:
   push:
     branches: [main]
     paths:
-      - 'feed_collector/**'
+      - 'feed-collector/**'
       - 'k8s/feed-collector/**'
       - '.github/workflows/feed-collector.yml'
 
@@ -23,7 +23,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        working-directory: feed_collector
+        working-directory: feed-collector
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
