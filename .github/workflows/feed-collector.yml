@@ -4,8 +4,9 @@ on:
   push:
     branches: [main]
     paths:
-      - 'feed-collector/**'
+      - 'feed_collector/**'
       - 'k8s/feed-collector/**'
+      - '.github/workflows/feed-collector.yml'
 
 jobs:
   test:
