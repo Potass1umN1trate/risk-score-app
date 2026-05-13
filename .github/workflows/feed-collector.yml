@@ -22,7 +22,7 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        working-directory: feed-collector
+        working-directory: feed_collector
         run: |
           pip install -r requirements.txt
           pip install -r requirements-dev.txt
