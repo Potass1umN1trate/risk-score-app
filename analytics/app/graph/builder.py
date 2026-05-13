@@ -6,11 +6,6 @@ Algorithm:
   2. For each address at the current depth, fetch its transactions.
   3. Add edges to the DiGraph; enqueue neighbouring addresses.
   4. Repeat up to `depth` hops or until the address limit is reached.
-
-Why NetworkX DiGraph instead of MultiDiGraph?
-  Multiple transactions between the same address pair are aggregated
-  into a single edge with total weight (total_amount) and count (tx_count).
-  This simplifies feature extraction and reduces memory usage.
 """
 
 import asyncio
