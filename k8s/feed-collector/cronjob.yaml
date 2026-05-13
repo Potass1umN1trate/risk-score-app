@@ -17,7 +17,7 @@ spec:
           restartPolicy: OnFailure
           containers:
             - name: feed-collector
-              image: anonymous98743/risk-score-feed-collector:sha-9d33d3a
+              image: anonymous98743/risk-score-feed-collector:sha-94e817d
               imagePullPolicy: IfNotPresent
               command: ["python", "feed-collector/main.py", "--no-dry-run"]
               envFrom:
