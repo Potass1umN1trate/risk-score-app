@@ -6,6 +6,12 @@ from fastapi.exceptions import RequestValidationError
 from app.api.analyze import router as analyze_router
 from app.api.errors import _error
 from app.config import settings
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s — %(message)s",
+)
 
 
 @asynccontextmanager
