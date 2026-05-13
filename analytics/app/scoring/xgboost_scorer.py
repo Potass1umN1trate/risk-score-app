@@ -152,7 +152,7 @@ class UniversalXGBoostScorer(BaseScorer):
         ml_score   = self._ml_score(raw) if self._model else 0.0
 
         # Combine: flags dominate, ML adds up to 40 extra points
-        combined = ml_score #flag_score + ml_score * (1.0 - flag_score / 100.0)
+        combined = flag_score + ml_score * (1.0 - flag_score / 100.0)
         combined = min(round(combined, 2), 100.0)
 
         version = self.MODEL_VERSION if self._model else f"{self.MODEL_VERSION}_heuristic"
