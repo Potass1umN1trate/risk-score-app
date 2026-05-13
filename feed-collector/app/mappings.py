@@ -43,6 +43,7 @@ _SCAMSNIFFER_CHAIN_MAP: dict[str, str | None] = {
 }
 
 _OFAC_CHAIN_MAP: dict[str, str | None] = {
+    "SOL": "SOL",
     "XBT": "BTC",
     "BTC": "BTC",
     "ETH": "ETH",
