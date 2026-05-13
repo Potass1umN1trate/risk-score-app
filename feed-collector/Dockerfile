@@ -5,10 +5,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-COPY feed_collector/requirements.txt feed_collector/requirements.txt
+COPY feed-collector/requirements.txt feed-collector/requirements.txt
 RUN pip install --no-cache-dir --upgrade pip \
-    && pip install --no-cache-dir -r feed_collector/requirements.txt
+    && pip install --no-cache-dir -r feed-collector/requirements.txt
 
-COPY feed_collector/ feed_collector/
+COPY feed-collector/ feed-collector/
 
-CMD ["python", "feed_collector/main.py", "--no-dry-run"]
+CMD ["python", "feed-collector/main.py", "--no-dry-run"]

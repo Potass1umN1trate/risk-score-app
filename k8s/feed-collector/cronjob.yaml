@@ -19,7 +19,7 @@ spec:
             - name: feed-collector
               image: risk-score-feed-collector:latest
               imagePullPolicy: IfNotPresent
-              command: ["python", "feed_collector/main.py", "--no-dry-run"]
+              command: ["python", "feed-collector/main.py", "--no-dry-run"]
               envFrom:
                 - configMapRef:
                     name: feed-collector-config
