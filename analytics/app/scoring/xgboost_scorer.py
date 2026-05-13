@@ -217,7 +217,7 @@ class UniversalXGBoostScorer(BaseScorer):
         df = pd.DataFrame([norm], columns=OUR_FEATURE_NAMES)
         prob = float(self._model.predict(xgb.DMatrix(df))[0])
 
-        return prob#round(prob * 40.0, 2)
+        return round(prob * 100.0, 2)
 
     @property
     def is_model_loaded(self) -> bool:

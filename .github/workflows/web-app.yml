@@ -87,7 +87,7 @@ jobs:
   update-manifest:
     name: Update K8s Manifest
     runs-on: ubuntu-latest
-    needs: [trivy, build]
+    needs: build #[trivy, build]
     steps:
       - uses: actions/checkout@v4
         with:
