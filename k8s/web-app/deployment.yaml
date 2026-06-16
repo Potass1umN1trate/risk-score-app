@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: web-app
-          image: risk-score-web-app:latest
+          image: anonymous98743/risk-score-web-app:sha-448dd22
           imagePullPolicy: IfNotPresent
           ports:
             - name: http
