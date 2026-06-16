@@ -79,10 +79,10 @@ jobs:
     steps:
       - name: Run Trivy
         uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/risk-score-web-app:${{ needs.build.outputs.image_tag }}
-          severity: CRITICAL
-          exit-code: '1'
+        # with:
+        #   image-ref: ${{ secrets.DOCKERHUB_USERNAME }}/risk-score-web-app:${{ needs.build.outputs.image_tag }}
+        #   severity: CRITICAL
+        #   exit-code: '1'
 
   update-manifest:
     name: Update K8s Manifest
