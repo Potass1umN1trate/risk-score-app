@@ -1076,7 +1076,7 @@ export async function listUsers(
 
   // Role filter requires a HAVING clause since roles come from aggregation.
   const having = filters.role
-    ? `HAVING array_agg(DISTINCT r.name) FILTER (WHERE r.name IS NOT NULL) @> ARRAY[$${params.length + 1}::text]`
+    ? `HAVING (array_agg(DISTINCT r.name) FILTER (WHERE r.name IS NOT NULL))::text[] @> ARRAY[$N::text]`
     : "";
   if (filters.role) params.push(filters.role);
 

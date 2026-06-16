@@ -12,7 +12,7 @@ venv/
 env/
 
 # Training data
-analytics/training/data/
+# analytics/training/data/
 
 # Environment
 .env*
